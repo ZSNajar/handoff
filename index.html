@@ -47,6 +47,24 @@
   .days a { color:var(--navy); font-weight:700; margin:0 6px; text-decoration-thickness:2px; }
   .days a[aria-current] { color:var(--pink); text-decoration:none; }
   @media (prefers-reduced-motion: reduce) { button { transition:none; } }
+  /* Phones: the title and results cards cover the whole screen (not just the 16:9 game box) and the page never scrolls. */
+  html, body { height:100%; overflow:hidden; }
+  body { height:100dvh; min-height:0; }
+  .overlay { position:fixed; inset:0; z-index:10; border-radius:0; padding:12px; }
+  .card { max-height:calc(100dvh - 24px); }
+  .short, .portrait-tip { display:none; }
+  @media (max-width: 640px), (max-height: 560px) {
+    .card { padding:16px 18px 18px; gap:8px; max-width:420px; }
+    h1 { font-size:clamp(40px, 13vw, 64px); }  h2 { font-size:clamp(30px, 9vw, 44px); }
+    p { font-size:17px; }  .lede { font-size:20px; }  .comment { font-size:18px; }  .quiet { font-size:14px; }
+    button { font-size:19px; padding:10px 22px 12px; }  pre { font-size:13px; padding:8px 10px; }
+    .long { display:none; }  .short { display:inline; }
+  }
+  @media (max-width: 640px) and (orientation: portrait) { .portrait-tip { display:block; } }
+  @media (max-height: 460px) {   /* phone held sideways: drop the extras so it all fits */
+    .card { transform:none; padding:10px 16px 12px; gap:5px; }  h1 { font-size:40px; }  h2 { font-size:30px; }
+    .hide-low { display:none !important; }  pre { line-height:1.2; }
+  }
 </style>
 </head>
 <body>
@@ -57,12 +75,14 @@
     <div class="card">
       <h1>Handoff</h1>
       <p id="dayLine" class="quiet"></p>
-      <p class="lede" id="lede">One golden egg. Four jobs. One song.</p>
-      <p>Each job sings you a little rhythm. Tap the screen or press Space to sing it back.
-        A pink ring shows when to tap whenever a rhythm is new. Your hit passes the <span id="obj">egg</span> along, and the song never stops.</p>
+      <p class="lede hide-low" id="lede">One golden egg. Four jobs. One song.</p>
+      <p><span class="long">Each job sings you a little rhythm. Tap the screen or press Space to sing it back.
+        A pink ring shows when to tap whenever a rhythm is new. Your hit passes the <span id="obj">egg</span> along, and the song never stops.</span>
+        <span class="short">Tap anywhere to sing each rhythm back. A pink ring shows when.</span></p>
       <button id="play">Play today's chain</button>
       <p class="quiet days" id="dayPick"></p>
-      <p class="quiet">Sound on, it's half the game.</p>
+      <p class="quiet hide-low">Sound on, it's half the game.</p>
+      <p class="quiet portrait-tip">Tip: turn your phone sideways for a bigger stage.</p>
     </div>
   </div>
 
@@ -71,7 +91,7 @@
       <h2 id="rank"></h2>
       <p id="comment" class="comment"></p>
       <pre id="share"></pre>
-      <p id="sub" class="quiet"></p>
+      <p id="sub" class="quiet hide-low"></p>
       <div class="row">
         <button id="copy">Copy result</button>
         <button id="again" class="alt">Practice again</button>
