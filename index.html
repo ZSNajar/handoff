@@ -11,6 +11,7 @@
   :root { --navy:#232B5C; --paper:#FFFDF7; --pink:#FF5DA2; --blue:#3D6BD9; --yellow:#FFD23F; --teal:#2CA58D;
           --display:'Bagel Fat One', 'Trebuchet MS', sans-serif; --hand:'Gaegu', 'Comic Sans MS', cursive; }
   * { box-sizing:border-box; }
+  html, body { touch-action:manipulation; -webkit-tap-highlight-color:transparent; -webkit-user-select:none; user-select:none; }   /* no double-tap zoom or text selection while tapping */
   body { margin:0; min-height:100vh; display:grid; place-items:center; color:var(--navy); font-family:var(--hand);
          background:var(--navy) radial-gradient(rgba(255,93,162,.22) 1.6px, transparent 1.8px) 0 0 / 14px 14px; }
   #wrap { position:relative; width:min(96vw, calc(96vh * 16 / 9), 1100px); aspect-ratio:16/9; }
@@ -1917,7 +1918,11 @@ document.getElementById('copy').onclick = e => {
   navigator.clipboard?.writeText(document.getElementById('share').textContent);
   e.target.textContent = 'Copied!';
 };
-cv.addEventListener('pointerdown', e => { e.preventDefault(); tap(); });
+// Tap anywhere on the page while playing (not just the game frame): big thumbs, small phones. Buttons and links still work as normal.
+addEventListener('pointerdown', e => {
+  if (state !== 'play' || e.target.closest('button, a, textarea, input')) return;
+  e.preventDefault(); tap();
+}, { passive:false });
 addEventListener('keydown', e => {
   if (e.repeat) return;
   if (e.code === 'Space' || e.code === 'Enter') {
