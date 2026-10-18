@@ -1,0 +1,1932 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Handoff, daily 1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bagel+Fat+One&family=Gaegu:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root { --navy:#232B5C; --paper:#FFFDF7; --pink:#FF5DA2; --blue:#3D6BD9; --yellow:#FFD23F; --teal:#2CA58D;
+          --display:'Bagel Fat One', 'Trebuchet MS', sans-serif; --hand:'Gaegu', 'Comic Sans MS', cursive; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; color:var(--navy); font-family:var(--hand);
+         background:var(--navy) radial-gradient(rgba(255,93,162,.22) 1.6px, transparent 1.8px) 0 0 / 14px 14px; }
+  #wrap { position:relative; width:min(96vw, calc(96vh * 16 / 9), 1100px); aspect-ratio:16/9; }
+  canvas { width:100%; height:100%; display:block; border-radius:14px; background:var(--paper);
+           box-shadow:8px 8px 0 var(--pink); touch-action:manipulation; user-select:none; }
+  .overlay { position:absolute; inset:0; display:grid; place-items:center; border-radius:14px; padding:20px;
+             background:rgba(35,43,92,.55); }
+  .hidden { display:none; }
+  /* a printed card: paper, navy line, pink off-register shadow */
+  .card { position:relative; max-width:600px; width:100%; display:flex; flex-direction:column; align-items:center; gap:12px;
+          padding:28px 34px 30px; text-align:center; background:var(--paper); border:4px solid var(--navy);
+          border-radius:22px 18px 24px 16px; box-shadow:7px 6px 0 var(--pink); transform:rotate(-1deg);
+          background-image:radial-gradient(rgba(35,43,92,.08) 1.4px, transparent 1.6px); background-size:10px 10px; }
+  h1, h2 { font-family:var(--display); font-weight:400; margin:0; line-height:.95; color:var(--paper); letter-spacing:.01em;
+           -webkit-text-stroke:3px var(--navy); paint-order:stroke fill;
+           text-shadow:5px 4px 0 var(--pink), -3px -2px 0 var(--blue); }
+  h1 { font-size:clamp(54px, 10vw, 104px); transform:rotate(-3deg); margin-bottom:4px; }
+  h2 { font-size:clamp(40px, 7vw, 66px); }
+  p { margin:0; font-size:22px; line-height:1.25; max-width:52ch; }
+  .lede { font-size:28px; font-weight:700; }
+  .quiet { font-size:19px; opacity:.8; }
+  .comment { font-size:27px; font-weight:700; line-height:1.2; }
+  button { font-family:var(--display); font-size:24px; padding:12px 30px 14px; border-radius:999px; border:4px solid var(--navy);
+           background:var(--pink); color:var(--paper); cursor:pointer; box-shadow:5px 5px 0 var(--navy);
+           -webkit-text-stroke:1.5px var(--navy); paint-order:stroke fill; transition:transform .08s, box-shadow .08s; }
+  button.alt { background:var(--yellow); color:var(--navy); -webkit-text-stroke:0; }
+  button:hover { transform:translate(-1px,-1px); box-shadow:6px 6px 0 var(--navy); }
+  button:active { transform:translate(4px,4px); box-shadow:1px 1px 0 var(--navy); }
+  button:focus-visible { outline:4px dashed var(--blue); outline-offset:4px; }
+  pre { font-family:var(--hand); font-weight:700; font-size:clamp(13px, 1.9vw, 19px); line-height:1.35; margin:0; padding:10px 16px; max-width:100%;
+        white-space:pre-wrap; border:3px dashed var(--navy); border-radius:12px; background:#fff; }
+  .row { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; margin-top:4px; }
+  .days a { color:var(--navy); font-weight:700; margin:0 6px; text-decoration-thickness:2px; }
+  .days a[aria-current] { color:var(--pink); text-decoration:none; }
+  @media (prefers-reduced-motion: reduce) { button { transition:none; } }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c" width="1280" height="720"></canvas>
+
+  <div id="title" class="overlay">
+    <div class="card">
+      <h1>Handoff</h1>
+      <p id="dayLine" class="quiet"></p>
+      <p class="lede" id="lede">One golden egg. Four jobs. One song.</p>
+      <p>Each job sings you a little rhythm. Tap the screen or press Space to sing it back.
+        A pink ring shows when to tap whenever a rhythm is new. Your hit passes the <span id="obj">egg</span> along, and the song never stops.</p>
+      <button id="play">Play today's chain</button>
+      <p class="quiet days" id="dayPick"></p>
+      <p class="quiet">Sound on, it's half the game.</p>
+    </div>
+  </div>
+
+  <div id="results" class="overlay hidden">
+    <div class="card">
+      <h2 id="rank"></h2>
+      <p id="comment" class="comment"></p>
+      <pre id="share"></pre>
+      <p id="sub" class="quiet"></p>
+      <div class="row">
+        <button id="copy">Copy result</button>
+        <button id="again" class="alt">Practice again</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ================= which day is it =================
+// Day 1 is Monday 2026-10-19. Anyone who opens it before then gets Day 1 early. Past the last built day you get the newest one.
+// Players can replay earlier days (the archive) but not peek ahead; ?day=N&preview opens any built day for testing.
+const DAYS_BUILT = 3, LAUNCH = new Date(2026, 9, 19);
+const RAW_DAY = (() => { const t = new Date(); t.setHours(0, 0, 0, 0); return Math.round((t - LAUNCH) / 864e5) + 1; })();   // round: DST-safe
+const TODAY_DAY = Math.max(1, Math.min(DAYS_BUILT, RAW_DAY));
+const PREVIEW = new URLSearchParams(location.search).has('preview');
+const DAY = (() => {
+  const q = Number(new URLSearchParams(location.search).get('day'));
+  return q ? Math.max(1, Math.min(PREVIEW ? DAYS_BUILT : TODAY_DAY, q)) : TODAY_DAY;
+})();
+const DAY_DATE = new Date(LAUNCH.getFullYear(), LAUNCH.getMonth(), LAUNCH.getDate() + DAY - 1);
+const GAME_URL = location.protocol.startsWith('http') ? location.origin + location.pathname : 'https://zsnajar.github.io/handoff/';
+
+// ================= chart =================
+let BPM = 118, SPB = 60 / BPM;
+const W = 1280, H = 720;
+// Risograph inks. Navy is the line ink; everything else is a flat colour pass.
+const C = {
+  navy:'#232B5C', paper:'#FFFDF7', pink:'#FF5DA2', pinkM:'#FF9FC8', pinkT:'#FFD3E6',
+  yellow:'#FFD23F', yellowT:'#FFF1A6', orange:'#FF7A3D', orangeT:'#FFC49E', teal:'#2CA58D', tealT:'#C3EBDD',
+  blue:'#3D6BD9', blueM:'#9DB6F2', blueT:'#D3E0FF', purple:'#6C5BC9', lav:'#A9A3EE', red:'#F15060',
+  skin:'#FFC9A8', blush:'#FF9EAE', mouth:'#B8245F', stache:'#3B2E6E', pan:'#3D4A8F',
+  yolk:'#FFB000', cake:'#FFB347', burnt:'#5B3A4A', dog:'#FFA45C', dogD:'#E8803C', snout:'#FFD7B0',
+  goat:'#EADFC8', bare:'#FFC4D6', wood:'#E8A15C',
+};
+const INK = C.navy;
+const FONT_D = '"Bagel Fat One", "Trebuchet MS", sans-serif', FONT_H = '"Gaegu", "Comic Sans MS", cursive';
+const PERF = 0.055, OKW = 0.11, WIN = 0.2;            // timing windows (seconds): tightened for a harder run
+
+const N = { D3:146.8, Eb3:155.6, F3:174.6, G3:196, A3:220, Bb3:233.1, B3:246.9, C4:261.6, D4:293.7, Eb4:311.1, E4:329.6, F4:349.2, G4:392,
+            A4:440, Bb4:466.2, B4:493.9, C5:523.3, D5:587.3, Eb5:622.3, E5:659.3, F5:698.5, G5:784, A5:880, Bb5:932.3, B5:987.8, C6:1046.5 };
+const CH = { C:[N.C4, N.E4, N.G4], G:[N.B3, N.D4, N.G4], F:[N.A3, N.C4, N.F4], Am:[N.A3, N.C4, N.E4],
+             Dm:[N.A3, N.D4, N.F4], Bb:[N.Bb3, N.D4, N.F4], Gm:[N.G3, N.Bb3, N.D4], Eb:[N.G3, N.Bb3, N.Eb4] };
+const ROOT = { C:65.4, G:98, F:87.3, Am:110, Dm:73.4, Bb:58.3, Gm:98, Eb:77.8 };
+let PROG, REMIX_PROG, J, HANDOFFS, THROW = 0, LINKS, TONIC, FIN_LEAD, REMIX_NOTES, DAYTEXT;   // REMIX_PROG lets a day change key for its remix
+const PAN = 2;                                         // beats the camera glides between jobs
+const REMIX = 68, FINALE = 84, END = 88;               // remix: 16 quick-cut beats after the last job
+const REMIX_ORDER = [0, 1, 2, 3, 1, 0, 3, 2];          // lap 2 is shuffled, so you can't coast on the order
+const SLOT = 2;
+
+// The melody IS the actions. Each phrase is a character's call followed by your answer, and
+// n is the note your answer sings. There is no separate lead line: if you miss, the tune has a hole.
+// ring = show the timing ring (first time a rhythm appears). decoy = a trick cue: don't tap.
+const CHART = [], CUES = [];
+const hit = (b, l, s, n, extra = {}) => CHART.push({ b, l, s, n, ...extra });
+// REMIX: a quick-cut medley through all four jobs, two beats each, twice round. Each job shrinks to
+// call-on-beat-1, you-on-beat-2, so your hits land on every backbeat. calls[job](slot, note) adds that job's cues.
+function remix(sounds, calls) {
+  REMIX_NOTES.forEach((n, k) => {
+    const s = REMIX + k * SLOT, job = REMIX_ORDER[k];
+    hit(s + 1, job, sounds[job], n, { remix:true, slot:s, ring:k < 4, plop:job === 2 && DAY === 1 ? N.G4 : undefined });
+    calls[job](s, n);
+  });
+}
+
+function day1() {                                      // Sunday: golden egg → yolk → pancake → frisbee
+  BPM = 118; PROG = ['C', 'Am', 'F', 'G']; J = [4, 20, 36, 52]; HANDOFFS = [17, 34, 49]; THROW = 65;
+  TONIC = 'C'; FIN_LEAD = [[0, N.E5, .5], [.5, N.G5, .5], [1, N.C6, 2.5]];
+  DAYTEXT = { lede:'One golden egg. Four jobs. One song.', object:'egg' };
+  LINKS = [
+    { name:'Catch!', emoji:'🥚', how:'bok, bok, ding!' },
+    { name:'Crack!', emoji:'🍳', how:'knock-knock-eek!' },
+    { name:'Flip!',  emoji:'🥞', how:'chef sings, you hup!', bx:W / 2 },
+    { name:'Fetch!', emoji:'🐕', how:'whistle, then bark it back' },
+  ];
+  // CATCH: the hen sings two notes, your catch sings the third.   E G → C | C B → A | A G → F | D G → B
+  hit(6, 0, 'catch', N.C5, { ring:true }); hit(10, 0, 'catch', N.A4); hit(14, 0, 'catch', N.F4);
+  hit(17, 0, 'catch', N.B4, { golden:true, final:true, ring:true });           // twist: quick bok-bok
+  // CRACK: knock-knock is the beat, the egg's yelp on every crack is the tune (twice a bar, on the backbeat).
+  [[21, N.E5, 1], [23, N.G5], [25, N.E5], [27, N.C5], [29, N.F5], [31, N.A5]].forEach(([b, n, r]) => hit(b, 1, 'crack', n, { ring:!!r }));
+  hit(34, 1, 'crack', N.G5, { final:true, ring:true });                        // twist: slow knock... knock
+  // FLIP: the chef sings "flip-it", you shout HUP on the flip, and the pancake lands with a plop on the next beat.
+  hit(38, 2, 'flip', N.C5, { ring:true, plop:N.G4 }); hit(42, 2, 'flip', N.E5, { plop:N.A4 }); hit(46, 2, 'flip', N.F5, { plop:N.A4 });
+  hit(49, 2, 'flip', N.D5, { final:true, ring:true });                         // twist: "aaand" HUP, launch
+  // FETCH: the kid whistles a phrase, you bark it back.
+  [[54, N.E5, 1], [55, N.G5, 1], [58, N.A4, 1], [58.5, N.C5], [59, N.E5], [62, N.F5, 1], [62.5, N.C5]]
+    .forEach(([b, n, r]) => hit(b, 3, 'woof', n, { ring:!!r }));
+  hit(66, 3, 'fetch', N.G5, { final:true, ring:true });                        // twist: the throw
+  CUES.push(
+    ...[[4, N.E4, N.G4], [8, N.C5, N.B4], [12, N.A4, N.G4]].flatMap(([b, f1, f2]) => [{ b, k:'bok', f:f1 }, { b:b + 1, k:'bok', f:f2 }]),
+    { b:16, k:'bok', f:N.D4 }, { b:16.5, k:'bok', f:N.G4 },
+    ...[20, 22, 24, 26, 28, 30].flatMap(b => [{ b, k:'knock', f:N.A5 }, { b:b + 0.5, k:'knock', f:N.E5 }]),
+    { b:32, k:'knock', f:N.A5 }, { b:33, k:'knock', f:N.E5 },
+    ...[[36, N.G4, N.E4], [40, N.A4, N.E4], [44, N.A4, N.F4]].flatMap(([b, f1, f2]) =>
+      [{ b, k:'swell', d:2 }, { b, k:'sing', f:f1 }, { b:b + 1, k:'sing', f:f2 }]),
+    { b:48, k:'swell', d:1 }, { b:48, k:'aaand', f:N.G4, d:0.9 },
+    ...[[52, N.E5], [53, N.G5], [56, N.A4], [56.5, N.C5], [57, N.E5], [60, N.F5], [60.5, N.C5]]
+      .map(([b, f]) => ({ b, k:'whistle', f, d:0.3 })),
+    { b:64, k:'whistle', f:N.D5, f1:N.G5, d:1 },
+  );
+  REMIX_NOTES = [N.C5, N.E5, N.G5, N.A5, N.G5, N.E5, N.D5, N.C5];
+  remix(['catch', 'crack', 'flip', 'woof'], [
+    s => CUES.push({ b:s, k:'bok', f:N.G4 }, { b:s + 0.5, k:'bok', f:N.A4 }),
+    s => CUES.push({ b:s, k:'knock', f:N.A5 }, { b:s + 0.5, k:'knock', f:N.E5 }),
+    s => CUES.push({ b:s, k:'sing', f:N.E4 }, { b:s, k:'swell', d:1 }),
+    (s, n) => CUES.push({ b:s, k:'whistle', f:n, d:0.3 }),
+  ]);
+}
+
+function day2() {                                      // Monday, "Cozy": wool → yarn ball → snowball → snowman
+  // Rule for every job here: a visible thing moves into place and lands ON the beat you tap,
+  // and your tap is the obvious verb for it. The call sound comes from that thing's motion.
+  BPM = 112; PROG = ['F', 'Dm', 'Bb', 'C']; J = [4, 20, 36, 52]; HANDOFFS = [18, 33.5, 50];
+  TONIC = 'F'; FIN_LEAD = [[0, N.A4, .5], [.5, N.C5, .5], [1, N.F5, 2.5]];
+  DAYTEXT = { lede:'One fluffy sheep. Four jobs. One song.', object:'wool' };
+  LINKS = [
+    { name:'Shear!', emoji:'🐑', how:'hop, hop, snip! (not goats)' },
+    { name:'Bat!',   emoji:'🧶', how:'grandma tosses, you bat it back' },
+    { name:'Stack!', emoji:'⛄', how:'pat each snowball as it lands' },
+    { name:'Dress!', emoji:'🎩', how:'pop on each thing as it lands' },
+  ];
+  // SHEAR: a sheep hops in (hop, hop) and lands in the barber chair on beat 3: snip! Bar 3 is a goat: leave it.
+  const sheepIn = (h0, h1, land, f0, f1, n, extra = {}) => {
+    CUES.push({ b:h0, k:extra.decoy ? 'gHop' : 'hop', f:f0 }, { b:h1, k:extra.decoy ? 'gHop' : 'hop', f:f1 });
+    hit(land, 0, extra.decoy ? null : 'snip', n, { hops:[h0, h1], ...extra });
+  };
+  sheepIn(4, 5, 6, N.F4, N.A4, N.C5, { ring:true });
+  sheepIn(8, 9, 10, N.D4, N.F4, N.A4);
+  sheepIn(12, 13, 14, N.Bb3, N.D4, null, { decoy:true }); CUES.push({ b:14.15, k:'meh', f:N.D4 });
+  sheepIn(16, 16.5, 17, N.E4, N.G4, N.C5, { ring:true });                       // twist: a quick sheep...
+  CUES.push({ b:17, k:'hop', f:N.G4 });
+  hit(18, 0, 'snip', N.E5, { hops:[16.5, 17], ram:true, final:true, ring:true }); // ...then the big ram right behind it
+  // BAT: grandma tosses the yarn ball across the room; it reaches the kitten's paw one beat later: bat!
+  [[20, N.F4, N.C5], [22, N.A4, N.A4], [24, N.D4, N.D5], [26, N.F4, N.A4], [28, N.Bb3, N.F5], [30, N.D4, N.D5]].forEach(([t, f, n], i) => {
+    CUES.push({ b:t, k:'toss', f });
+    hit(t + 1, 1, 'bat', n, { toss:t, ring:i === 0 });
+  });
+  CUES.push({ b:32, k:'toss', f:N.C4 });
+  hit(33.5, 1, 'bat', N.E5, { toss:32, final:true, ring:true });               // twist: a high lob, whacked out the window
+  // STACK: outside, a kid lobs two snowballs; each lands on the snowman two beats later: pat, pat!
+  [[36, N.F4, N.A4], [40, N.D4, N.F4], [44, N.Bb3, N.D4]].forEach(([t, f1, f2], i) => {
+    CUES.push({ b:t, k:'throw', f:f1 }, { b:t + 1, k:'throw', f:f2 });
+    hit(t + 2, 2, 'pat', f1 * 2, { throw:t, ring:i === 0 }); hit(t + 3, 2, 'pat', f2 * 2, { throw:t + 1, ring:i === 0 });
+  });
+  CUES.push({ b:48, k:'throw', f:N.C4 });
+  hit(50, 2, 'pat', N.C5, { throw:48, final:true, ring:true });                // twist: the yarn snowball becomes the head
+  // DRESS: the kids shake their bells "one, two", then toss the next thing; it lands on the snowman: pop!
+  const dress = (t, items) => {
+    CUES.push({ b:t, k:'jingle', f:N.F5 }, { b:t + 1, k:'jingle', f:N.C5 });
+    items.forEach(([dt, item, n], i) => hit(t + 2 + dt, 3, 'pop', n, { throw:t + 1 + dt, item, ring:t === 52 || (t === 56 && i < 2) }));
+  };
+  dress(52, [[0, 'nose', N.F5]]);
+  dress(56, [[0, 'button', N.D5], [0.5, 'button', N.F5]]);
+  dress(60, [[0, 'scarf', N.Bb4]]);
+  CUES.push({ b:64, k:'jingle', f:N.F5 }, { b:64, k:'throw', f:N.C4 });
+  hit(66, 3, 'pop', N.G5, { throw:64, item:'hat', final:true, ring:true });    // twist: the top hat, thrown high
+  REMIX_NOTES = [N.A4, N.C5, N.F5, N.D5, N.C5, N.A4, N.G4, N.F4];
+  remix(['snip', 'bat', 'pat', 'pop'], [
+    s => CUES.push({ b:s, k:'hop', f:N.F4 }, { b:s + 0.5, k:'hop', f:N.A4 }),
+    s => CUES.push({ b:s, k:'toss', f:N.F4 }),
+    s => CUES.push({ b:s, k:'throw', f:N.A4 }),
+    s => CUES.push({ b:s, k:'jingle', f:N.C5 }),
+  ]);
+  // the remix versions of each motion: hop-hop-land, toss, a short throw, a little star sticker
+  CHART.filter(h => h.remix).forEach(h => {
+    if (h.l === 0) h.hops = [h.slot, h.slot + 0.5];
+    if (h.l === 1) h.toss = h.slot;
+    if (h.l === 2) h.throw = h.slot;
+    if (h.l === 3) { h.throw = h.slot; h.item = 'star'; }
+  });
+}
+
+function day3() {                                      // Tuesday, "Big Top": circus ball → seal → trapeze flyer → cannon
+  // Same rule as day 2 (every tap meets something you can see arriving), but scored big: brass, timpani,
+  // drum rolls and crashes, with your taps as the orchestra's loudest hits. The remix lifts up a key (B♭ → C).
+  BPM = 120; PROG = ['Bb', 'Gm', 'Eb', 'F']; REMIX_PROG = ['C', 'Am', 'F', 'G']; J = [4, 20, 36, 52]; HANDOFFS = [18, 34, 50];
+  TONIC = 'C'; FIN_LEAD = [[0, N.E5, .5], [.5, N.G5, .5], [1, N.C6, 3]];
+  DAYTEXT = { lede:'One circus ball. Four acts. One very big song.', object:'ball' };
+  LINKS = [
+    { name:'Parade!',  emoji:'🐘', how:'step, step, STOMP the drum' },
+    { name:'Bounce!',  emoji:'🦭', how:'whistle, then bounce it back' },
+    { name:'Trapeze!', emoji:'🤸', how:'swing, swing, catch her!' },
+    { name:'Cannon!',  emoji:'💥', how:'BOOM when the spark arrives' },
+  ];
+  // PARADE: each elephant takes two steps (the tuba's oom-pah) and its front foot lands on the big drum: STOMP.
+  const parade = (steps, who, stomps) => {
+    steps.forEach(([b, f]) => CUES.push({ b, k:'step', f }));
+    stomps.forEach(([b, n, extra = {}], i) => hit(b, 0, 'stomp', n, { steps:steps.map(s => s[0]), who, again:i > 0, ...extra }));
+  };
+  parade([[4, N.Bb3], [5, N.D4]], 'elephant', [[6, N.F4, { ring:true }]]);
+  parade([[8, N.G3], [8.5, N.Bb3]], 'baby', [[9, N.G4, { ring:true }]]);
+  parade([[10, N.G3], [10.5, N.Bb3]], 'baby', [[11, N.Bb4]]);
+  parade([[12, N.Eb3], [13, N.G3]], 'big', [[14, N.Eb4, { ring:true }], [15, N.G4, { ring:true }]]);   // stomps twice
+  parade([[16, N.F3], [16.5, N.A3]], 'mama', [[17, N.C5, { ring:true }], [18, N.F5, { final:true, ring:true }]]);   // twist: tosses the ball
+  // BOUNCE: the ringmaster whistles a rhythm, the seal bounces the ball back in that rhythm on the same notes.
+  const whistle = (calls, offset, rings = []) => calls.forEach(([b, f], i) => {
+    CUES.push({ b, k:'whistle', f, d:0.22 });
+    hit(b + offset, 1, 'bounce', f, { ring:rings.includes(i) });
+  });
+  whistle([[20, N.F5], [21, N.D5]], 2, [0, 1]);
+  whistle([[24, N.G5], [24.5, N.Bb5], [25, N.D5]], 2, [1]);
+  whistle([[28, N.Eb5], [29, N.G5], [29.5, N.Bb5]], 2, [2]);
+  CUES.push({ b:32, k:'whistle', f:N.C5, f1:N.F5, d:1 });
+  hit(34, 1, 'bounce', N.F5, { final:true, ring:true });                       // twist: one big bounce up to the trapeze
+  // TRAPEZE: the flyer swings back, swings forward, lets go, and lands in your hands: catch!
+  const swing = (b, f) => CUES.push({ b, k:'swing', f });
+  swing(36, N.F4); swing(37, N.Bb4); hit(38, 2, 'catch3', N.D5, { release:37, ring:true });
+  swing(40, N.G4); swing(41, N.D5); hit(42, 2, 'catch3', N.G5, { release:41, flips:1 });
+  hit(43, 2, 'catch3', N.D5, { release:42, hop:true, ring:true });             // then you toss her up and catch her again
+  swing(44, N.Eb4); swing(45, N.G4); hit(46, 2, 'catch3', N.Eb5, { release:45, flips:1 });
+  hit(47, 2, 'catch3', N.G5, { release:46, hop:true });
+  swing(48, N.C5); swing(48.5, N.F5); hit(50, 2, 'catch3', N.F5, { release:48.5, flips:3, final:true, ring:true });   // twist: a triple
+  // CANNON: the ringmaster lights the fuse (a drum roll runs under it); when the spark reaches the cannon: BOOM!
+  const fuse = (light, boom, n, extra = {}) => { CUES.push({ b:light, k:'light' }, { b:light, k:'roll', d:boom - light }); hit(boom, 3, 'boom', n, { light, ...extra }); };
+  fuse(52, 54, N.D5, { ring:true });
+  fuse(56, 57, N.Bb4, { ring:true }); fuse(58, 59, N.D5);
+  fuse(60, 61, N.Eb5, { ring:true }); fuse(61, 62, N.F5); fuse(62, 63, N.G5);   // three in a row, each lit as the last one fires
+  fuse(64, 66, N.F5, { final:true, ring:true });                               // twist: the long fuse launches the flyer
+  // REMIX, up a key: each act squeezed into two beats, call on 1, you on 2
+  REMIX_NOTES = [N.C5, N.E5, N.G5, N.A5, N.G5, N.E5, N.D5, N.C5];
+  remix(['stomp', 'bounce', 'catch3', 'boom'], [
+    s => CUES.push({ b:s, k:'step', f:N.C4 }),
+    (s, n) => CUES.push({ b:s, k:'whistle', f:n, d:0.22 }),
+    s => CUES.push({ b:s, k:'swing', f:N.G4 }),
+    s => CUES.push({ b:s, k:'light' }, { b:s, k:'roll', d:1 }),
+  ]);
+  CHART.filter(h => h.remix).forEach(h => {
+    if (h.l === 0) { h.steps = [h.slot - 0.5, h.slot]; h.who = 'baby'; }
+    if (h.l === 2) h.release = h.slot;
+    if (h.l === 3) h.light = h.slot;
+  });
+}
+
+(DAY === 3 ? day3 : DAY === 2 ? day2 : day1)();
+REMIX_PROG = REMIX_PROG || PROG;
+SPB = 60 / BPM;
+const ARRIVE = HANDOFFS.map(h => h + PAN);             // when the object lands in the next job
+CHART.sort((a, z) => a.b - z.b);
+const cuesOf = k => CUES.filter(c => c.k === k);
+const remixScene = b => b >= FINALE - 0.1 ? 3 : REMIX_ORDER[clamp(Math.floor((b - REMIX + 0.1) / SLOT), 0, 7)];   // which job the camera is on
+const chordAt = b => b >= REMIX ? REMIX_PROG[Math.floor((b - REMIX) / 4) % 4] : PROG[Math.floor(Math.max(0, b - J[0]) / 4) % 4];   // the chord under any beat
+
+// ================= audio =================
+let ac, master, verb, noiseBuf;
+function initAudio() {
+  ac = new (window.AudioContext || window.webkitAudioContext)();
+  const comp = ac.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4;
+  master = ac.createGain(); master.gain.value = 0.75; master.connect(comp).connect(ac.destination);
+  noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+  const d = noiseBuf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  // small room reverb so everything sits together
+  verb = ac.createConvolver();
+  const len = ac.sampleRate * 1.6, ir = ac.createBuffer(2, len, ac.sampleRate);
+  for (let c = 0; c < 2; c++) { const ch = ir.getChannelData(c); for (let i = 0; i < len; i++) ch[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3); }
+  verb.buffer = ir; const vg = ac.createGain(); vg.gain.value = 0.35; verb.connect(vg).connect(master);
+}
+const safe = t => Math.max(ac.currentTime, t);
+function route(node, wet = 0) {
+  node.connect(master);
+  if (wet) { const s = ac.createGain(); s.gain.value = wet; node.connect(s).connect(verb); }
+}
+function env(gain, t, a, peak, dec) {
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(peak, t + a);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + a + dec);
+}
+function tone(t, type, f0, f1, dur, vol, wet = 0) {
+  t = safe(t);
+  const o = ac.createOscillator(), gn = ac.createGain();
+  o.type = type; o.frequency.setValueAtTime(f0, t);
+  if (f1) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  env(gn, t, 0.005, vol, dur);
+  o.connect(gn); route(gn, wet); o.start(t); o.stop(t + dur + 0.05);
+}
+function noise(t, dur, vol, type, freq, q = 1, wet = 0) {
+  t = safe(t);
+  const s = ac.createBufferSource(), f = ac.createBiquadFilter(), gn = ac.createGain();
+  s.buffer = noiseBuf; f.type = type; f.frequency.value = freq; f.Q.value = q;
+  env(gn, t, 0.003, vol, dur);
+  s.connect(f).connect(gn); route(gn, wet); s.start(t); s.stop(t + dur + 0.05);
+}
+function swell(t, dur) {                               // sizzle that builds into the flip
+  const s = ac.createBufferSource(), f = ac.createBiquadFilter(), gn = ac.createGain();
+  s.buffer = noiseBuf; s.loop = true; f.type = 'bandpass'; f.Q.value = 0.8;
+  f.frequency.setValueAtTime(1500, t); f.frequency.exponentialRampToValueAtTime(6000, t + dur);
+  gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(0.22, t + dur);
+  gn.gain.setValueAtTime(0.0001, t + dur + 0.01);
+  s.connect(f).connect(gn); route(gn); s.start(t); s.stop(t + dur + 0.05);
+}
+function lead(t, f, d, v = 0.07) {                     // bright, slightly chiptune lead with delayed vibrato
+  const o = ac.createOscillator(), o2 = ac.createOscillator(), lp = ac.createBiquadFilter(), gn = ac.createGain();
+  const lfo = ac.createOscillator(), lg = ac.createGain();
+  o.type = 'square'; o2.type = 'triangle'; o.frequency.value = f; o2.frequency.value = f * 1.004;
+  lfo.frequency.value = 5.5; lg.gain.setValueAtTime(0, t); lg.gain.linearRampToValueAtTime(f * 0.012, t + Math.max(0.15, d));
+  lfo.connect(lg); lg.connect(o.frequency); lg.connect(o2.frequency);
+  lp.type = 'lowpass'; lp.frequency.value = 2400;
+  gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(v, t + 0.012);
+  gn.gain.setValueAtTime(v * 0.8, t + d * 0.7); gn.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.1);
+  o.connect(lp); o2.connect(lp); lp.connect(gn); route(gn, 0.3);
+  [o, o2, lfo].forEach(x => { x.start(t); x.stop(t + d + 0.15); });
+}
+function pad(t, fs, d, v = 0.018) {                    // warm detuned chord bed
+  fs.forEach(f => [0.996, 1.004].forEach(det => {
+    const o = ac.createOscillator(), lp = ac.createBiquadFilter(), gn = ac.createGain();
+    o.type = 'sawtooth'; o.frequency.value = f * det; lp.type = 'lowpass'; lp.frequency.value = 1000;
+    gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(v, t + 0.2);
+    gn.gain.setValueAtTime(v, t + d - 0.15); gn.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.3);
+    o.connect(lp).connect(gn); route(gn, 0.4); o.start(t); o.stop(t + d + 0.35);
+  }));
+}
+function bass(t, f, d) {                               // plucky bass
+  const o = ac.createOscillator(), lp = ac.createBiquadFilter(), gn = ac.createGain();
+  o.type = 'sawtooth'; o.frequency.value = f; lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(1400, t); lp.frequency.exponentialRampToValueAtTime(260, t + 0.18);
+  gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(0.38, t + 0.008);
+  gn.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  o.connect(lp).connect(gn); route(gn); o.start(t); o.stop(t + d + 0.05);
+}
+// Tiny formant "voice", so characters can say bok / hup / woof / yay.
+const VOW = { a:[800, 1200], o:[480, 850], u:[330, 750], e:[450, 1900], i:[300, 2300] };
+function voice(t, f, v1, v2, dur, cons, vol = 0.4, f1) {
+  t = safe(t);
+  const o = ac.createOscillator(), out = ac.createGain(), lfo = ac.createOscillator(), lg = ac.createGain();
+  o.type = 'sawtooth'; o.frequency.setValueAtTime(f, t);
+  if (f1) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  lfo.frequency.value = 5.5; lg.gain.value = f * 0.02; lfo.connect(lg).connect(o.frequency);
+  VOW[v1].forEach((F, k) => {
+    const bp = ac.createBiquadFilter(), gg = ac.createGain();
+    bp.type = 'bandpass'; bp.Q.value = 5;
+    bp.frequency.setValueAtTime(F, t); bp.frequency.linearRampToValueAtTime(VOW[v2][k], t + dur);
+    gg.gain.value = k ? 2 : 3;
+    o.connect(bp).connect(gg).connect(out);
+  });
+  env(out, t, 0.02, vol, dur);
+  route(out, 0.25);
+  o.start(t); lfo.start(t); o.stop(t + dur + 0.1); lfo.stop(t + dur + 0.1);
+  if (cons === 'h') noise(t, 0.05, vol * 0.4, 'bandpass', 1800);
+  if (cons === 'k') noise(t + dur * 0.85, 0.025, vol * 0.6, 'highpass', 3000);
+}
+const SFX = {
+  kick:  t => tone(t, 'sine', 150, 45, 0.2, 0.95),
+  snare: (t, v = 0.45) => { noise(t, 0.16, v, 'bandpass', 2200, 0.7, 0.2); tone(t, 'triangle', 200, 150, 0.08, v * 0.7); },
+  clap:  (t, v = 0.3) => [0, 0.012, 0.024].forEach(d => noise(t + d, 0.06, v, 'bandpass', 1300, 1.2, 0.3)),
+  hat:   (t, v = 0.13) => noise(t, 0.035, v, 'highpass', 8000),
+  stick: t => { noise(t, 0.05, 0.6, 'bandpass', 2500, 5); tone(t, 'sine', 1800, null, 0.03, 0.3); },
+  stab:  (t, fs, d = 0.12, v = 0.07) => fs.forEach(f => { tone(t, 'triangle', f, null, d, v, 0.2); tone(t, 'sine', f * 2, null, d, v * 0.5, 0.2); }),
+  bell:  (t, f, d = 0.35, v = 0.4) => { tone(t, 'sine', f, null, d, v, 0.35); tone(t, 'sine', f * 2, null, d * 0.6, v * 0.3, 0.35); },
+  crash: t => noise(t, 1.4, 0.25, 'highpass', 5000, 1, 0.3),
+  // cues
+  bok:   (t, f) => voice(t, f, 'o', 'o', 0.12, 'k', 0.45),
+  knock: (t, f) => { tone(t, 'sine', f, f * 0.9, 0.07, 0.55, 0.2); noise(t, 0.02, 0.3, 'bandpass', 3000, 3); },
+  whistle: (t, f, f1, d) => { tone(t, 'sine', f, f1, d, 0.28, 0.3); tone(t, 'triangle', f, f1, d, 0.07); },
+  aaand: (t, f, d) => voice(t, f, 'a', 'e', d, null, 0.45, f * 1.12),
+  sing:  (t, f) => voice(t, f, 'i', 'i', 0.2, null, 0.5),
+  // your hits: each one sings a note of the tune
+  catch: (t, f) => { tone(t, 'sine', f, null, 0.5, 0.5, 0.35); tone(t, 'sine', f * 4, null, 0.08, 0.15); tone(t, 'triangle', f * 2, null, 0.25, 0.12, 0.3); },
+  crack: (t, f) => { voice(t, f, 'i', 'i', 0.16, null, 0.55, f * 0.94); SFX.snare(t, 0.45); noise(t, 0.04, 0.4, 'highpass', 4000); },
+  flip:  (t, f) => { voice(t, f / 2, 'u', 'a', 0.16, 'h', 0.6); tone(t, 'sine', f, null, 0.3, 0.25, 0.35); SFX.snare(t, 0.4); },
+  plop:  (t, f) => { tone(t, 'sine', f, f * 0.8, 0.14, 0.45, 0.2); noise(t, 0.03, 0.2, 'lowpass', 700); },
+  woof:  (t, f) => voice(t, f / 2, 'u', 'a', 0.17, null, 0.6),
+  fetch: (t, f) => { voice(t, f / 2, 'u', 'a', 0.3, null, 0.7); SFX.snare(t, 0.6); },
+  // day 2 cues: each one is the sound of the thing moving (a springy hop, a whoosh), tuned to the tune
+  marimba: (t, f, v = 0.4) => { tone(t, 'sine', f, null, 0.4, v, 0.3); tone(t, 'sine', f * 4, null, 0.05, v * 0.25); tone(t, 'triangle', f * 2, null, 0.12, v * 0.2); },
+  hop:   (t, f) => { tone(t, 'sine', f * 0.75, f, 0.1, 0.32, 0.2); tone(t, 'triangle', f, null, 0.16, 0.12); },
+  gHop:  (t, f) => { tone(t, 'square', f * 0.6, f * 0.5, 0.09, 0.1); tone(t, 'sine', f * 0.5, null, 0.18, 0.3); },
+  meh:   (t, f) => voice(t, f, 'e', 'e', 0.18, null, 0.25, f * 0.92),
+  whoosh: (t, v = 0.25) => { const s = ac.createBufferSource(), fl = ac.createBiquadFilter(), gn = ac.createGain(); t = safe(t);
+    s.buffer = noiseBuf; fl.type = 'bandpass'; fl.Q.value = 1.2; fl.frequency.setValueAtTime(500, t); fl.frequency.exponentialRampToValueAtTime(2400, t + 0.22);
+    env(gn, t, 0.04, v, 0.2); s.connect(fl).connect(gn); route(gn, 0.2); s.start(t); s.stop(t + 0.3); },
+  toss:  (t, f) => { SFX.whoosh(t, 0.18); SFX.marimba(t, f, 0.3); },
+  throw: (t, f) => { SFX.whoosh(t, 0.22); tone(t, 'sine', f, f * 0.9, 0.07, 0.35, 0.2); },
+  jingle: (t, f) => { [0, 0.03, 0.06, 0.09].forEach(d => noise(t + d, 0.03, 0.16, 'highpass', 7500)); SFX.bell(t, f, 0.25, 0.15); },
+  // day 2 hits: a crisp action sound plus your note on marimba
+  snip:  (t, f) => { noise(t, 0.02, 0.5, 'highpass', 6000); noise(t + 0.04, 0.018, 0.4, 'highpass', 8000); SFX.marimba(t, f, 0.45); },
+  bat:   (t, f) => { tone(t, 'triangle', f, null, 0.28, 0.45, 0.25); noise(t, 0.02, 0.3, 'bandpass', 2500, 2); SFX.marimba(t, f * 2, 0.12); },
+  pat:   (t, f) => { tone(t, 'sine', 130, 60, 0.1, 0.5); noise(t, 0.06, 0.3, 'lowpass', 900); SFX.marimba(t, f, 0.4); },
+  pop:   (t, f) => { tone(t, 'sine', f * 0.5, f * 1.5, 0.05, 0.35); SFX.bell(t + 0.02, f, 0.45, 0.4); },
+  // day 3, the big top: a brass section, timpani and drum rolls. Your hits are the orchestra's biggest hits.
+  brass: (t, fs, d = 0.3, v = 0.07) => fs.forEach(f => [0.996, 1.004].forEach(k => {
+    t = safe(t);
+    const o = ac.createOscillator(), lp = ac.createBiquadFilter(), gn = ac.createGain();
+    o.type = 'sawtooth'; o.frequency.value = f * k; lp.type = 'lowpass'; lp.Q.value = 1.5;
+    lp.frequency.setValueAtTime(320, t); lp.frequency.exponentialRampToValueAtTime(2800, t + 0.05); lp.frequency.exponentialRampToValueAtTime(1300, t + d);
+    gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(v, t + 0.03); gn.gain.setValueAtTime(v * 0.8, t + d); gn.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.15);
+    o.connect(lp).connect(gn); route(gn, 0.3); o.start(t); o.stop(t + d + 0.2);
+  })),
+  timp:  (t, f, v = 0.6) => { tone(t, 'sine', f * 1.4, f, 0.9, v, 0.3); tone(t, 'sine', f * 2.01, f * 1.9, 0.4, v * 0.25); noise(t, 0.05, v * 0.3, 'lowpass', 400); },
+  roll:  (t, d) => { const n = Math.max(3, Math.round(d / (SPB / 8))); for (let i = 0; i < n; i++) { const k = i / n; noise(t + i * d / n, 0.04, 0.04 + 0.3 * k * k, 'bandpass', 2400, 0.8, 0.15); } },
+  step:  (t, f) => { tone(t, 'sine', 90, 50, 0.12, 0.6); SFX.brass(t, [f / 2], 0.24, 0.12); SFX.brass(t, [f], 0.2, 0.05); },   // the elephant's footstep IS the tuba's oom-pah
+  swing: (t, f) => { SFX.whoosh(t, 0.2); SFX.bell(t, f * 2, 0.4, 0.16); SFX.timp(t, f / 2, 0.35); },   // each swing beats the timpani, building to your catch
+  light: t => { noise(t, 0.08, 0.35, 'highpass', 3000); tone(t, 'sine', 2400, 900, 0.06, 0.08); },
+  stomp: (t, f) => { SFX.kick(t); SFX.timp(t, ROOT[chordAt(beat())] * 2, 0.7); SFX.brass(t, CH[chordAt(beat())].map(x => x * 2), 0.28, 0.04); SFX.brass(t, [f], 0.32, 0.12); },   // you play the melody, the brass section answers
+  bounce: (t, f) => { tone(t, 'sine', f * 0.5, f, 0.08, 0.3); SFX.marimba(t, f, 0.42); SFX.brass(t, [f], 0.14, 0.05); },
+  catch3: (t, f) => { SFX.timp(t, ROOT[chordAt(beat())] * 2, 0.5); SFX.brass(t, CH[chordAt(beat())].map(x => x * 2), 0.34, 0.045); SFX.brass(t, [f], 0.38, 0.11); noise(t, 0.6, 0.14, 'highpass', 5000, 1, 0.3); },
+  boom:  (t, f) => { SFX.kick(t); SFX.timp(t, ROOT[chordAt(beat())] * 2, 0.85); SFX.brass(t, [...CH[chordAt(beat())], f], 0.36, 0.075); noise(t, 0.3, 0.4, 'lowpass', 500); SFX.crash(t); },
+  // feedback
+  ting:  t => tone(t, 'sine', 2093, null, 0.06, 0.05, 0.3),
+  clunk: t => tone(t, 'square', 140, 90, 0.07, 0.15),
+  thunk: t => { tone(t, 'triangle', 120, 55, 0.18, 0.5); noise(t, 0.05, 0.2, 'lowpass', 600); },
+  whiff: t => noise(t, 0.06, 0.12, 'bandpass', 800),
+  crowd: (t, happy) => {
+    for (let i = 0; i < 6; i++) {
+      const f = 260 + Math.random() * 280, dt = Math.random() * 0.07;
+      if (happy) voice(t + dt, f, 'e', 'a', 0.4, null, 0.1, f * 1.15);
+      else voice(t + dt, f, 'a', 'o', 0.6, null, 0.09, f * 0.75);
+    }
+  },
+};
+
+// The band is only rhythm + chords: the calls and your answers carry the melody. Gaps are where your hits land.
+const BASS = {
+  bounce:[[0, 1, .3], [.5, 2, .2], [1, 1, .3], [1.5, 2, .2], [2, 1, .3], [2.5, 2, .2], [3, 1.5, .3], [3.5, 2, .2]],
+  long:  [[0, 1, 1.6], [2, 1, 0.9], [3, 1.5, 0.8]],
+  walk:  [[0, 1, .4], [1, 1.5, .4], [2, 2, .4], [3, 1.5, .4]],
+};
+const GROOVES = DAY === 3 ? [   // the band is only the rhythm bed: the tuba, timpani and brass all come from the acts (calls) and from you (answers)
+  { kick:[0, 2], snare:[], clap:[], hat:[.5, 1.5, 2.5, 3.5], bass:'bounce' },                 // parade: steps are the oom-pah, your STOMP the melody
+  { kick:[0, 2], snare:[], clap:[], hat:[.5, 1.5, 2.5, 3.5], bass:'walk' },                   // bounce: the whistle's half, then the seal's
+  { kick:[0], snare:[], clap:[], hat:[0, 1, 2, 3], bass:'long' },                             // trapeze: the swings drum the timpani into your catch
+  { kick:[0], snare:[], clap:[], hat:[.5, 1.5, 2.5, 3.5], bass:'long' },                       // cannon: the fuses are the drum rolls
+] : DAY === 2 ? [
+  { kick:[0, 1], snare:[], clap:[3], hat:[.5, 1.5, 2.5, 3.5], bass:'bounce' },                       // shear: kicks on the hops, your SNIP on beat 3
+  { kick:[0, 2], snare:[], clap:[], hat:[0, .5, 1, 1.5, 2, 2.5, 3, 3.5], bass:'bounce' },            // bat: a rally, your BATs are the backbeat
+  { kick:[0, 1], snare:[], clap:[], hat:[.5, 1.5, 2.5, 3.5], bass:'walk' },                          // stack: kicks on the throws, your PATs on 3 and 4
+  { kick:[0, 1, 2, 3], snare:[], clap:[3], hat:[.5, 1.5, 2.5, 3.5], bass:'walk' },                   // dress: full band, your POP on beat 3
+] : [
+  { kick:[0, 2.5], snare:[], clap:[3], hat:[.5, 1.5, 2.5, 3.5], bass:'bounce' },                     // catch: bouncy, your DING on 3rd beat
+  { kick:[0, 1.75, 2.5], snare:[], clap:[], hat:[0, .5, 1, 1.5, 2, 2.5, 3, 3.5], bass:'bounce' },   // crack: funk, your EEKs are the backbeat
+  { kick:[0, 1.5], snare:[], clap:[], hat:[0, 1, 2, 3], bass:'long' },                               // flip: half-time, your HUP is the backbeat
+  { kick:[0, 1, 2, 3], snare:[], clap:[1, 3], hat:[.5, 1.5, 2.5, 3.5], bass:'walk' },                // fetch: full band
+];
+
+function scheduleSong(t0) {
+  const at = b => t0 + b * SPB;
+  for (let b = 0; b < 4; b++) SFX.stick(at(b));
+  pad(at(0), CH[PROG[0]], 4 * SPB, 0.012);
+  J.forEach((j, k) => {
+    const gr = GROOVES[k];
+    PROG.forEach((c, m) => {
+      const b0 = j + m * 4;
+      gr.kick.forEach(o => SFX.kick(at(b0 + o)));
+      gr.snare.forEach(o => SFX.snare(at(b0 + o)));
+      gr.clap.forEach(o => SFX.clap(at(b0 + o)));
+      gr.hat.forEach(o => SFX.hat(at(b0 + o)));
+      (gr.march || []).forEach(o => SFX.snare(at(b0 + o), 0.2));
+      (gr.brass || []).forEach(o => SFX.brass(at(b0 + o), CH[c].map(x => x * 2), 0.28, 0.04));
+      (gr.timp || []).forEach(o => SFX.timp(at(b0 + o), ROOT[c] * 2, 0.35));
+      BASS[gr.bass].forEach(([o, mul, d]) => bass(at(b0 + o), ROOT[c] * mul, d * SPB));
+      pad(at(b0), CH[c], 4 * SPB, 0.014);
+    });
+  });
+  CUES.forEach(c => {
+    if (c.k === 'swell') swell(at(c.b), c.d * SPB);
+    else if (c.k === 'whistle') SFX.whistle(at(c.b), c.f, c.f1, c.d * SPB);
+    else if (c.k === 'aaand') SFX.aaand(at(c.b), c.f, c.d * SPB);
+    else if (c.k === 'roll') SFX.roll(at(c.b), c.d * SPB);
+    else SFX[c.k](at(c.b), c.f);
+  });
+  // remix: four-on-the-floor, busy hats, bouncing bass; the backbeats are yours
+  SFX.crash(at(REMIX));
+  REMIX_PROG.forEach((c, m) => {                         // (some days lift up a key here)
+    const b0 = REMIX + m * 4;
+    [0, 1, 2, 3].forEach(o => SFX.kick(at(b0 + o)));
+    [0, .5, 1, 1.5, 2, 2.5, 3, 3.5].forEach(o => SFX.hat(at(b0 + o), 0.1));
+    BASS.bounce.forEach(([o, mul, d]) => bass(at(b0 + o), ROOT[c] * mul, d * SPB));
+    pad(at(b0), CH[c], 4 * SPB, 0.014);
+  });
+  // finale: land on the home chord
+  SFX.kick(at(FINALE)); SFX.crash(at(FINALE)); bass(at(FINALE), ROOT[TONIC], 2); pad(at(FINALE), [...CH[TONIC], CH[TONIC][2] * 2], 3 * SPB, 0.025);
+  FIN_LEAD.forEach(([o, f, d]) => lead(at(FINALE + o), f, d * SPB, 0.08));
+  if (DAY === 3) {                                      // big-top finale: a timpani roll into one huge brass chord
+    for (let i = 0; i < 8; i++) SFX.timp(at(FINALE - 1 + i * 0.125), ROOT.G * 2, 0.2 + i * 0.04);
+    SFX.brass(at(FINALE), [...CH.C, ...CH.C.map(x => x * 2), N.C6], 3 * SPB, 0.05); SFX.timp(at(FINALE), ROOT.C * 2, 0.9);
+  }
+}
+
+// ================= game state =================
+const cv = document.getElementById('c');
+let g = cv.getContext('2d');                            // swapped briefly while printing cached backgrounds
+let state = 'title', start = 0, lat = 0, lastTap = -99, parts = [], pops = [], streak = 0, finaleDone = false;
+let hits = CHART.map(h => ({ ...h, r: null, tb: null }));   // filled before the first frame so the title can draw
+const beat = () => (ac.currentTime - start - lat) / SPB;
+const atB = b => start + b * SPB;
+const good = h => !!h && (h.r === 'perfect' || h.r === 'ok');
+const jobHits = l => hits.filter(h => h.l === l && !h.remix);
+const remixHit = (scene, b) => hits.find(h => h.remix && h.l === scene && b >= h.slot - 0.1 && b < h.slot + SLOT - 0.1);
+const finalOf = l => jobHits(l).find(h => h.final);
+
+function begin() {
+  if (!ac) initAudio();
+  ac.resume();
+  hits = CHART.map(h => ({ ...h, r: null, tb: null }));
+  parts = []; pops = []; streak = 0; lastTap = -99; finaleDone = false;
+  lat = (ac.outputLatency || 0) + (ac.baseLatency || 0);
+  start = ac.currentTime + 0.3;
+  scheduleSong(start);
+  state = 'play';
+  document.getElementById('title').classList.add('hidden');
+  document.getElementById('results').classList.add('hidden');
+}
+
+const PRAISE = ['Nice!', 'Great!', 'Yes!', 'Super!', 'Perfect!'];
+function judge(h, r, b, d) {
+  h.r = r; h.tb = b; h.jt = beat();                     // jt: when it was judged (an auto-miss is judged after its beat)
+  const t = ac.currentTime;
+  if (r === 'miss') {
+    SFX.thunk(t); streak = 0;
+    pop(h.l, 'Miss', C.red, d == null ? '' : d < 0 ? 'too early' : 'too late');
+  } else {
+    SFX[h.s](t, h.n);
+    if (r === 'ok') { SFX.clunk(t); streak = 0; pop(h.l, 'OK', C.orange, d < 0 ? 'a bit early' : 'a bit late'); }
+    else { SFX.ting(t); sparkle(h.l); streak++; pop(h.l, PRAISE[Math.min(streak - 1, PRAISE.length - 1)], C.teal, streak >= 3 ? `${streak} in a row` : ''); }
+    if (h.final) SFX.crash(t);
+    if (h.plop) SFX.plop(atB(h.b + (h.remix ? 0.5 : 1)), h.plop);   // a good flip lands with its own note (faster in the remix)
+    spawnNote(h.l);
+  }
+  if (h.final) {                                       // the crowd reacts to every handoff
+    SFX.crowd(atB(h.b + 0.5), r !== 'miss');
+    if (r !== 'miss') CH[chordAt(h.b)].forEach((f, i) => SFX.bell(atB(h.b + 0.5 + i * 0.25), f * 2, 0.3, 0.2));   // fanfare on the chord of the moment
+  }
+}
+// Decoys (the goat's trick bar): tapping one is a miss, leaving it alone is a clean dodge.
+function judgeDecoy(h, tapped, b) {
+  h.r = tapped ? 'miss' : 'perfect'; h.tb = b; h.jt = beat();
+  if (tapped) { SFX.thunk(ac.currentTime); streak = 0; pop(h.l, 'Not the goat!', C.red, 'that one was a trick'); }
+  else pop(h.l, 'Dodged!', C.teal, '');
+}
+
+function tap() {
+  if (state !== 'play') return;
+  const b = beat(); lastTap = b;
+  let best = null, bd = 1e9;
+  hits.forEach(h => {
+    if (h.r) return;
+    const d = (b - h.b) * SPB;
+    if (Math.abs(d) <= WIN && Math.abs(d) < Math.abs(bd)) { bd = d; best = h; }
+  });
+  if (!best) { SFX.whiff(ac.currentTime); return; }
+  if (best.decoy) { judgeDecoy(best, true, b); return; }
+  const ad = Math.abs(bd);
+  judge(best, ad <= PERF ? 'perfect' : ad <= OKW ? 'ok' : 'miss', b, bd);
+}
+
+function update(b) {
+  hits.forEach(h => { if (!h.r && (b - h.b) * SPB > WIN) h.decoy ? judgeDecoy(h, false, h.b) : judge(h, 'miss', h.b, null); });
+  if (!finaleDone && b >= FINALE) {
+    finaleDone = true;
+    const ok = score().pct >= 60;
+    SFX.crowd(atB(FINALE), ok);
+    for (let i = 0; i < (ok ? 90 : 12); i++) parts.push({ kind:'confetti', x:3 * W + Math.random() * W, y:-20 - Math.random() * 200,
+      vx:(Math.random() - 0.5) * 120, vy:150 + Math.random() * 200, t:performance.now(), life:4000,
+      c:[C.pink, C.yellow, C.teal, C.blue, C.purple][i % 5], r:Math.random() * 6 });
+    if (DAY === 3 && ok) [[3 * W + 300, 160], [3 * W + 640, 110], [3 * W + 980, 170]].forEach(([fx, fy], j) => {   // fireworks over the big top
+      for (let i = 0; i < 14; i++) { const a = i / 14 * Math.PI * 2;
+        parts.push({ kind:'star', x:fx, y:fy, vx:Math.cos(a) * 260, vy:Math.sin(a) * 260, t:performance.now() + j * 250, life:900, c:[C.yellow, C.pink, C.teal][j], r:11 }); }
+    });
+  }
+}
+
+// How a character feels about your last hit in its job: happy, worried (sloppy), or staring at you (miss).
+function moodFor(l, b) {
+  let last = null;
+  hits.forEach(h => { if (h.l === l && h.r && h.tb <= b) last = h; });
+  if (!last) return 'normal';
+  const d = b - last.tb;
+  if (last.r === 'perfect' && d < 0.7) return 'happy';
+  if (last.r === 'ok' && d < 0.9) return 'worried';
+  if (last.r === 'miss' && d < 1.6) return 'stare';
+  return 'normal';
+}
+
+// ================= particles & word pops =================
+const SPOT = DAY === 3   // where each job's action happens (world coordinates)
+  ? [[700, 540], [W + 760, 250], [2 * W + 878, 530], [3 * W + 951, 443]]
+  : DAY === 2
+  ? [[660, 420], [W + 850, 430], [2 * W + 860, 420], [3 * W + 860, 330]]
+  : [[640, 540], [W + 640, 400], [2 * W + 620, 500], [3 * W + 820, 400]];
+const POPX = DAY === 3 ? [280, 260, 220, -330] : DAY === 2 ? [260, 150, 250, 250] : [240, 210, 270, 0];   // word pops sit beside the action, clear of the props
+function pop(l, text, color, sub) { pops.push({ l, text, color, sub, t:performance.now() }); }
+function sparkle(l) {
+  const [x, y] = SPOT[l];
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2;
+    parts.push({ kind:'star', x, y, vx:Math.cos(a) * 320, vy:Math.sin(a) * 320 - 60, t:performance.now(), life:450, c:C.yellow, r:13 });
+  }
+}
+function spawnNote(l) {
+  const [x, y] = SPOT[l];
+  parts.push({ kind:'note', x:x - 60, y:y - 40, vx:-40 + Math.random() * 30, vy:-120, t:performance.now(), life:900 });
+}
+function drawParts(cx) {
+  const now = performance.now();
+  parts = parts.filter(p => now - p.t < p.life);
+  parts.forEach(p => {
+    const s = (now - p.t) / 1000, k = (now - p.t) / p.life;
+    const x = p.x + p.vx * s - cx, y = p.y + p.vy * s + (p.kind === 'confetti' ? 0 : 300 * s * s);
+    g.globalAlpha = p.kind === 'confetti' ? 1 : 1 - k;
+    if (p.kind === 'star') star(x, y, p.r * (1 - k * 0.5), p.c);
+    else if (p.kind === 'note') note(x, y, 1 - k);
+    else { g.save(); g.translate(x, y); g.rotate(s * 6 + p.r); box(-6, -10, 12, 20, p.c); g.restore(); }
+    g.globalAlpha = 1;
+  });
+}
+// Misprinted type: a navy pass slightly off-register under the colour pass, like two riso drums.
+function printText(text, x, y, size, color, font = FONT_D, off = 4) {
+  g.font = `${size}px ${font}`; g.textAlign = 'center';
+  g.fillStyle = INK; g.fillText(text, x + off, y + off * 0.8);
+  g.fillStyle = color; g.fillText(text, x, y);
+}
+function drawPops(cx) {
+  const now = performance.now();
+  pops = pops.filter(p => now - p.t < 700);
+  pops.forEach(p => {
+    const k = (now - p.t) / 700, pop = Math.sin(Math.min(1, k * 5) * Math.PI) * 0.25;
+    const x = SPOT[p.l][0] + POPX[p.l] - cx, y = SPOT[p.l][1] - 150 - k * 40;   // beside the action, clear of the egg / mitten / pancake path
+    g.save(); g.translate(x, y); g.scale(1 + pop, 1 + pop); g.rotate(-0.07);
+    g.globalAlpha = k < 0.75 ? 1 : 1 - (k - 0.75) / 0.25;
+    printText(p.text, 0, 0, 58, p.color);
+    if (p.sub) { g.font = `bold 28px ${FONT_H}`; g.fillStyle = INK; g.fillText(p.sub, 0, 34); }
+    g.restore(); g.globalAlpha = 1;
+  });
+}
+// Timing ring for new rhythms: closes in on the action and fits the target exactly on the beat.
+function drawRings(b, cx) {
+  hits.forEach(h => {
+    if (!h.ring || h.r || b < h.b - 1 || b > h.b + 0.15) return;
+    const p = clamp((b - (h.b - 1)) / 1, 0, 1), x = SPOT[h.l][0] - cx, y = SPOT[h.l][1];
+    g.globalAlpha = 0.3 + 0.7 * p;
+    ell(x, y, 46, 46, null, C.paper, 12); ell(x, y, 46, 46, null, INK, 5);
+    const r = 46 + (1 - p) * 130;
+    ell(x + 3, y + 2, r, r, null, C.blue, 7); ell(x, y, r, r, null, C.pink, 7);
+    if (p > 0.85) printText('tap!', x, y + 10, 28, C.pink, FONT_D, 2);
+    g.globalAlpha = 1;
+  });
+}
+
+// ================= drawing helpers: a moving risograph print =================
+// Outlines are hand-wobbly and redraw on every half beat ("boil"), fills sit slightly off-register,
+// big shapes get a halftone shadow, and the whole frame gets paper grain.
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const pulse = (b, t, w = 0.2) => Math.max(0, 1 - Math.abs(b - t) / w);
+const live = b => state === 'play' && b >= 0 && b < FINALE + 4;
+const bop = b => live(b) ? Math.pow(1 - (b % 1), 3) : 0;                  // squash on every beat
+const sway = (b, ph = 0) => live(b) ? Math.sin((b + ph) * Math.PI) : 0;   // side-to-side over two beats
+const blink = seed => ((performance.now() / 1000 + seed) % 3.2) < 0.13;
+function mix(c1, c2, t) {
+  const p = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
+  const a = p(c1), z = p(c2);
+  return '#' + a.map((v, i) => Math.round(lerp(v, z[i], t)).toString(16).padStart(2, '0')).join('');
+}
+let BOIL = 0, NSH = 0;                                 // boil frame, and a per-frame shape counter for stable wobble
+const MIS = 3;                                         // misregistration between fill and line, in px
+const rnd = (a, b) => { const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return (s - Math.floor(s)) * 2 - 1; };
+let DOTS = null, GRAIN = null;
+function makeTextures() {
+  const d = document.createElement('canvas'); d.width = d.height = 9;
+  const dc = d.getContext('2d'); dc.fillStyle = 'rgba(35,43,92,0.3)'; dc.beginPath(); dc.arc(4.5, 4.5, 2.1, 0, 7); dc.fill();
+  DOTS = g.createPattern(d, 'repeat');
+  const n = document.createElement('canvas'); n.width = n.height = 256;
+  const nc = n.getContext('2d'), img = nc.createImageData(256, 256);
+  for (let i = 0; i < img.data.length; i += 4) {
+    img.data[i] = 35; img.data[i + 1] = 43; img.data[i + 2] = 92;
+    img.data[i + 3] = Math.random() > 0.82 ? Math.random() * 34 : 0;
+  }
+  nc.putImageData(img, 0, 0); GRAIN = g.createPattern(n, 'repeat');
+}
+function closedPath(pts, dx = 0, dy = 0) {
+  const n = pts.length, mid = i => [(pts[i][0] + pts[(i + 1) % n][0]) / 2 + dx, (pts[i][1] + pts[(i + 1) % n][1]) / 2 + dy];
+  g.beginPath(); let m = mid(n - 1); g.moveTo(m[0], m[1]);
+  for (let i = 0; i < n; i++) { m = mid(i); g.quadraticCurveTo(pts[i][0] + dx, pts[i][1] + dy, m[0], m[1]); }
+  g.closePath();
+}
+function inked(pts, x, y, rx, ry, fill, stroke, lw) {
+  const off = stroke ? MIS : 0;
+  if (fill) {
+    closedPath(pts, off, off * 0.7); g.fillStyle = fill; g.fill();
+    if (stroke && rx + ry > 46 && DOTS) {           // halftone shadow, lower right
+      g.save(); closedPath(pts, off, off * 0.7); g.clip();
+      g.beginPath(); g.rect(x - rx - 30, y - ry - 30, rx * 2 + 60, ry * 2 + 60);
+      g.ellipse(x - rx * 0.22, y - ry * 0.3, rx * 1.05, ry * 1.05, 0, 0, Math.PI * 2);
+      g.fillStyle = DOTS; g.fill('evenodd'); g.restore();
+    }
+  }
+  if (stroke) { closedPath(pts); g.strokeStyle = stroke; g.lineWidth = lw * 0.8; g.lineJoin = 'round'; g.stroke(); }
+}
+function ell(x, y, rx, ry, fill, stroke = INK, lw = 5) {
+  rx = Math.max(0.1, rx); ry = Math.max(0.1, ry);
+  if (rx + ry < 15) { pell(x, y, rx, ry, fill, stroke, lw); return; }
+  const id = ++NSH, n = clamp(Math.round((rx + ry) / 5), 10, 32), amp = Math.min(2.4, 0.6 + (rx + ry) * 0.015);
+  const pts = Array.from({ length:n }, (_, i) => {
+    const a = i / n * Math.PI * 2, j = rnd(id * 7.31 + i, BOIL) * amp;
+    return [x + Math.cos(a) * (rx + j), y + Math.sin(a) * (ry + j)];
+  });
+  inked(pts, x, y, rx, ry, fill, stroke, lw);
+}
+function pell(x, y, rx, ry, fill, stroke = null, lw = 3) {   // plain, steady ellipse (eyes, pupils, dots)
+  g.beginPath(); g.ellipse(x, y, Math.max(0.1, rx), Math.max(0.1, ry), 0, 0, Math.PI * 2);
+  if (fill) { g.fillStyle = fill; g.fill(); }
+  if (stroke) { g.strokeStyle = stroke; g.lineWidth = lw; g.stroke(); }
+}
+function poly(pts, fill, stroke = INK, lw = 5) {
+  const id = ++NSH, out = [];
+  pts.forEach((p, i) => {
+    const q = pts[(i + 1) % pts.length], n = Math.max(2, Math.round(Math.hypot(q[0] - p[0], q[1] - p[1]) / 26));
+    for (let k = 0; k < n; k++) {
+      const t = k / n;
+      out.push([lerp(p[0], q[0], t) + rnd(id + i * 9.1 + k, BOIL) * 1.3, lerp(p[1], q[1], t) + rnd(id * 3.3 + i + k * 5.7, BOIL) * 1.3]);
+    }
+  });
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  inked(out, (x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, fill, stroke, lw);
+}
+const rbox = (x, y, w, h, fill, stroke = INK, lw = 5) => poly([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], fill, stroke, lw);
+function box(x, y, w, h, fill) { g.fillStyle = fill; g.fillRect(x, y, w, h); }
+function line(pts, w = 5, c = INK) {                   // hand-drawn stroke; wobble follows position so layered strokes line up
+  let P = pts.length === 2 ? [pts[0], [(pts[0][0] + pts[1][0]) / 2, (pts[0][1] + pts[1][1]) / 2], pts[1]] : pts;
+  const amp = Math.min(1.3, 0.3 + w * 0.08);
+  P = P.map((p, i) => { const s = Math.round(p[0] / 9) * 0.37 + Math.round(p[1] / 9) * 0.71 + i; return [p[0] + rnd(s, BOIL) * amp, p[1] + rnd(s + 4.2, BOIL) * amp]; });
+  g.strokeStyle = c; g.lineWidth = w; g.lineCap = 'round'; g.lineJoin = 'round';
+  g.beginPath(); g.moveTo(P[0][0], P[0][1]);
+  for (let i = 1; i < P.length - 1; i++) { const m = [(P[i][0] + P[i + 1][0]) / 2, (P[i][1] + P[i + 1][1]) / 2]; g.quadraticCurveTo(P[i][0], P[i][1], m[0], m[1]); }
+  g.lineTo(P[P.length - 1][0], P[P.length - 1][1]); g.stroke();
+}
+function star(x, y, r, c) {
+  g.beginPath();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+  g.closePath(); g.fillStyle = c; g.fill(); g.strokeStyle = INK; g.lineWidth = 2.5; g.lineJoin = 'round'; g.stroke();
+}
+// Halftone field: dots that grow from `from` to `to` (0..1) down the area. Only used in cached backgrounds.
+function halftone(x, y, w, h, c, from, to, step = 14) {
+  g.fillStyle = c;
+  const rows = Math.max(1, Math.round(h / step));
+  for (let j = 0; j <= rows; j++) {
+    const r = step * 0.5 * lerp(from, to, j / rows);
+    if (r < 0.5) continue;
+    g.beginPath();
+    for (let i = -1; i <= w / step + 1; i++) { const cx = x + i * step + (j % 2) * step / 2, cy = y + j * step; g.moveTo(cx + r, cy); g.arc(cx, cy, r, 0, Math.PI * 2); }
+    g.fill();
+  }
+}
+// Eyes + mouth. mood: normal | happy | worried | stare (the deadpan look when you miss).
+function face(x, y, s, mood, o = {}) {
+  const [lx, ly] = mood === 'stare' ? [0, 0.3] : (o.look || [0, 0]);
+  if (o.blush !== false && s >= 0.7) [-1, 1].forEach(k => pell(x + k * 24 * s, y + 12 * s, 7 * s, 4.5 * s, 'rgba(255,93,162,0.45)'));
+  [-1, 1].forEach(k => {
+    const ex = x + k * 13 * s, ey = y;
+    if (mood === 'happy') line([[ex - 7 * s, ey + 2 * s], [ex, ey - 5 * s], [ex + 7 * s, ey + 2 * s]], 3.5 * s);
+    else if (o.blink && mood !== 'stare') line([[ex - 7 * s, ey], [ex + 7 * s, ey]], 3.5 * s);
+    else {
+      pell(ex, ey, 7.5 * s, 9 * s, C.paper, INK, 3 * s);
+      pell(ex + lx * 3 * s, ey + ly * 3.5 * s, 3.8 * s, 4.6 * s, INK);
+      pell(ex + lx * 3 * s - 1.2 * s, ey + ly * 3.5 * s - 1.6 * s, 1.2 * s, 1.2 * s, C.paper);
+      if (mood === 'stare') { box(ex - 10 * s, ey - 12 * s, 20 * s, 11.5 * s, o.skin || C.paper); line([[ex - 8 * s, ey], [ex + 8 * s, ey]], 3 * s); }
+    }
+    if (mood === 'worried') line([[ex + k * 8 * s, ey - 12 * s], [ex - k * 5 * s, ey - 17 * s]], 3 * s);
+  });
+  const m = o.mouth || { happy:'smile', stare:'flat', worried:'wobble' }[mood] || 'none', my = y + 17 * s;
+  if (m === 'smile') { g.strokeStyle = INK; g.lineWidth = 3.5 * s; g.lineCap = 'round'; g.beginPath(); g.arc(x, my - 5 * s, 8 * s, 0.15 * Math.PI, 0.85 * Math.PI); g.stroke(); }
+  if (m === 'flat') line([[x - 7 * s, my], [x + 7 * s, my]], 3.5 * s);
+  if (m === 'wobble') line([[x - 9 * s, my], [x - 4 * s, my - 3 * s], [x, my], [x + 4 * s, my - 3 * s], [x + 9 * s, my]], 3 * s);
+  if (m === 'o') pell(x, my, 4 * s, 5 * s, INK);
+  if (m === 'open') { pell(x, my + 2 * s, 8 * s, 9 * s, C.mouth, INK, 3 * s); pell(x, my + 7 * s, 4.5 * s, 3 * s, C.pink); }
+  if (mood === 'worried') pell(x + 26 * s, y - 8 * s, 4 * s, 6 * s, C.blueM, INK, 2 * s);
+}
+function egg(x, y, o = {}) {
+  const s = o.s || 1, skin = o.gold ? C.yellow : C.paper;
+  ell(x, y, 34 * s, 44 * s, skin);
+  if (o.gold) { pell(x - 13 * s, y - 22 * s, 5 * s, 9 * s, C.paper); pell(x - 6 * s, y - 33 * s, 2.5 * s, 2.5 * s, C.paper); }
+  face(x, y - 4 * s, 0.75 * s, o.mood || 'normal', { look:o.look, skin, mouth:o.mouth, blink:o.blink });
+  [[-22, 14], [14, 26], [-10, -30], [20, -14], [-24, -10], [2, 34]].slice(0, o.crack || 0).forEach(([dx, dy]) =>
+    line([[x + (dx - 10) * s, y + dy * s], [x + (dx - 4) * s, y + (dy - 5) * s], [x + (dx + 2) * s, y + (dy + 3) * s], [x + (dx + 9) * s, y + (dy - 4) * s]], 3 * s));
+  if (o.tape) {
+    g.save(); g.translate(x + 14 * s, y - 26 * s); g.rotate(0.6); rbox(-16, -6, 32, 12, C.orangeT, INK, 3);
+    g.rotate(-1.2); rbox(-16, -6, 32, 12, C.orangeT, INK, 3); g.restore();
+  }
+}
+function yolk(x, y, specks, mood = 'happy') {
+  ell(x, y, 32, 27, C.yolk); face(x, y - 3, 0.7, mood, { skin:C.yolk });
+  if (specks) [[-18, 10], [12, -15], [20, 12]].forEach(([dx, dy]) => poly([[x + dx, y + dy], [x + dx + 9, y + dy + 3], [x + dx + 2, y + dy + 10]], C.paper, INK, 2));
+}
+function pancake(x, y, r, flip = 1, burn = 0, mood = 'normal', mouth) {
+  const skin = mix(C.cake, C.burnt, clamp(burn, 0, 1)), ry = r * 0.38 * Math.abs(flip) + 6;
+  ell(x, y, r, ry, skin);
+  if (flip > 0.35 && burn < 0.5) pell(x - r * 0.35, y - ry * 0.35, r * 0.2, ry * 0.18, 'rgba(255,253,247,0.55)');
+  if (flip > 0.35) face(x, y - 3, r / 95, mood, { skin, mouth });
+}
+function note(x, y, a) {
+  g.globalAlpha = clamp(a, 0, 1);
+  g.font = `54px ${FONT_D}`; g.textAlign = 'left';
+  g.fillStyle = C.pink; g.fillText('♪', x + 3, y + 2); g.fillStyle = INK; g.fillText('♪', x, y);
+  g.globalAlpha = 1;
+}
+const tapIn = (a, z, b, w = 0.2) => lastTap >= a && lastTap < z ? pulse(b, lastTap + 0.08, w) : 0;
+
+// ================= backgrounds (printed once, then reused every frame) =================
+const BG = [];
+function printed(i, draw) {
+  if (!BG[i]) {
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const keep = g, kb = BOIL, kn = NSH;
+    g = c.getContext('2d'); BOIL = 0; draw(); g = keep; BOIL = kb; NSH = kn;
+    BG[i] = c;
+  }
+  g.drawImage(BG[i], 0, 0);
+}
+function bgHen() {
+  box(0, 0, W, H, C.yellowT);
+  halftone(0, 30, W, 600, C.pinkT, 0.42, 0.42, 46);                   // polka wallpaper
+  halftone(0, 470, W, 170, C.orangeT, 0.05, 0.55, 13);
+  box(0, 640, W, 80, C.pink); halftone(0, 648, W, 72, '#E5438C', 0.55, 0.15, 12);
+  line([[0, 640], [W, 640]], 6);
+  rbox(420, 250, 440, 22, C.purple);
+  line([[470, 272], [470, 330], [520, 272]], 5); line([[810, 272], [810, 330], [760, 272]], 5);   // shelf brackets
+}
+function bgCrack() {
+  box(0, 0, W, H, C.blueT);
+  for (let i = 1; i < 13; i++) line([[i * 100, 0], [i * 100, 600]], 2.5, C.blueM);
+  for (let j = 1; j < 6; j++) line([[0, j * 100], [W, j * 100]], 2.5, C.blueM);
+  halftone(0, 420, W, 180, C.blueM, 0.05, 0.6, 13);
+  box(0, 600, W, 120, C.teal); halftone(0, 610, W, 110, '#1E7F6C', 0.6, 0.15, 12);
+  line([[0, 600], [W, 600]], 7);
+}
+function bgPan() {
+  box(0, 0, W, H, C.pinkT);
+  for (let i = 0; i < 26; i++) for (let j = 0; j < 4; j++) if ((i + j) % 2) box(i * 50, 440 + j * 45, 50, 45, C.pinkM);
+  halftone(0, 20, W, 400, C.pinkM, 0.38, 0.0, 30);
+  box(0, 620, W, 100, INK); halftone(0, 628, W, 92, C.blue, 0.15, 0.55, 12);
+  line([[0, 620], [W, 620]], 6, C.paper);
+  rbox(1030, 120, 210, 300, INK); box(1044, 134, 182, 272, C.blueT);
+  halftone(1044, 300, 182, 106, C.blueM, 0.1, 0.6, 12);
+  ell(1110, 210, 42, 18, C.paper, null); ell(1150, 196, 26, 14, C.paper, null);
+  line([[1135, 134], [1135, 406]], 8); line([[1044, 270], [1226, 270]], 8);
+}
+function bgDog() {
+  box(0, 0, W, H, C.blueT);
+  halftone(0, 0, W, 240, C.blueM, 0.55, 0.0, 15);
+  ell(1110, 200, 58, 58, C.yellow);
+  for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; line([[1110 + Math.cos(a) * 78, 200 + Math.sin(a) * 78], [1110 + Math.cos(a) * 100, 200 + Math.sin(a) * 100]], 6, C.orange); }
+  rbox(-20, 492, W + 40, 16, C.paper, INK, 4);
+  for (let i = 0; i < 14; i++) poly([[i * 95 + 20, 600], [i * 95 + 20, 476], [i * 95 + 29, 462], [i * 95 + 38, 476], [i * 95 + 38, 600]], C.paper, INK, 4);
+  box(0, 600, W, 120, C.teal); halftone(0, 608, W, 112, '#1E7F6C', 0.55, 0.1, 12);
+  line([[0, 600], [W, 600]], 7);
+}
+
+// ================= scenes (each lives in its own 1280-wide slot) =================
+function sceneHen(b) {
+  printed(0, bgHen);
+  const L = jobHits(0), mood = moodFor(0, b);
+  const cl = Math.max(0, ...cuesOf('bok').map(c => pulse(b, c.b + 0.04, 0.18)));
+  const bp = bop(b);
+  // hen (sways to the music, squashes on every bok)
+  g.save(); g.translate(640, 250); g.rotate(sway(b) * 0.05); g.scale(1.3 * (1 + cl * 0.1 + bp * 0.04), 1.3 * (1 - cl * 0.12 - bp * 0.06));   // hen is the star: drawn 30% bigger
+  ell(-74, -90, 20, 32, C.paper); ell(-62, -102, 16, 28, C.paper);
+  ell(0, -55, 82, 60, C.paper);
+  ell(-14, -52, 36, 24, C.lav, INK, 4); line([[-34, -50], [-14, -40], [6, -50]], 3);
+  ell(58, -114, 37, 34, C.paper);
+  ell(46, -152, 11, 11, C.red); ell(60, -158, 11, 11, C.red); ell(74, -151, 10, 10, C.red);
+  poly([[86, -122], [116, -112 - cl * 4], [86, -106]], C.orange, INK, 3);
+  poly([[86, -104], [110, -98 + cl * 10], [86, -94 + cl * 6]], C.orange, INK, 3);
+  ell(82, -86, 8, 13, C.red);
+  face(56, -122, 0.8, mood, { look:[0.4, 1], skin:C.paper, mouth:'none', blink:blink(0.3) });
+  g.restore();
+  // carton of caught eggs
+  const caught = L.filter(h => !h.golden && good(h) && b > h.b + 1).length;
+  rbox(250, 600, 200, 40, C.blueM);
+  for (let i = 0; i < 4; i++) { pell(275 + i * 50, 604, 20, 8, C.blue); if (i < caught) ell(275 + i * 50, 592, 17, 14, C.paper, INK, 3); }
+  // basket
+  const t = Math.max(tapIn(0, ARRIVE[0], b, 0.15), tapIn(REMIX, FINALE, b, 0.15));
+  g.save(); g.translate(640, 620); g.scale(1 + t * 0.15 + bp * 0.04, 1 - t * 0.2 - bp * 0.05);
+  poly([[-92, -50], [92, -50], [72, 20], [-72, 20]], C.orange);
+  line([[-82, -26], [82, -26]], 3.5, '#C94F1F'); line([[-76, -3], [76, -3]], 3.5, '#C94F1F');
+  [-50, -16, 18, 52].forEach(xx => line([[xx, -48], [xx * 0.82, 18]], 3, '#C94F1F'));
+  g.restore();
+  // eggs: each drops from the last bok and lands on the hit
+  L.forEach(h => {
+    const drop = h.b - (h.golden ? 0.5 : 1), o = { gold:h.golden, look:[0, -1] };
+    if (b < drop) return;
+    if (b < h.b) { const p = (b - drop) / (h.b - drop); egg(640, lerp(318, 560, p * p), { ...o, mouth:'o', mood:'worried' }); return; }   // drops from just under the shelf
+    if (!h.r) { egg(640, 560, o); return; }
+    if (h.golden) { if (b < HANDOFFS[0]) egg(640, 560, { ...o, mood:'happy' }); return; }
+    if (good(h)) { if (b < h.b + 1) egg(lerp(640, 275 + Math.min(caught, 3) * 50, ease(b - h.b)), lerp(560, 585, b - h.b) - Math.sin(Math.PI * (b - h.b)) * 60, { s:0.8, mood:'happy' }); }
+    else { ell(790, 672, 66, 15, C.paper); ell(795, 668, 22, 11, C.yolk); }
+  });
+  // remix: one quick egg, dropped on the second bok and caught on the backbeat
+  const rh = remixHit(0, b);
+  if (rh && b >= rh.slot + 0.5) {
+    if (b < rh.b) { const p = (b - rh.slot - 0.5) / 0.5; egg(640, lerp(318, 560, p * p), { mouth:'o', mood:'worried', look:[0, -1] }); }
+    else if (!rh.r) egg(640, 560, { look:[0, -1] });
+    else if (good(rh)) egg(640, 560 - Math.sin(Math.min(1, (b - rh.b) * 2) * Math.PI) * 50, { mood:'happy' });
+    else { ell(790, 672, 66, 15, C.paper); ell(795, 668, 22, 11, C.yolk); }
+  }
+}
+function mitten(x, y) {                                // the pink oven mitt that holds eggs in the crack job
+  line([[x - 20, y - 112], [x - 40, y - 190]], 30, INK); line([[x - 20, y - 112], [x - 40, y - 190]], 21, C.pink);
+  ell(x, y - 88, 44, 26, C.pink); ell(x + 44, y - 66, 13, 18, C.pink);
+  line([[x - 32, y - 75], [x + 28, y - 75]], 3, C.paper);
+}
+
+function sceneCrack(b) {
+  printed(1, bgCrack);
+  // bowl
+  g.save(); g.beginPath(); g.rect(0, 560, W, 200); g.clip(); ell(640, 560, 172, 110, C.paper); g.restore();
+  line([[468, 560], [812, 560]], 5);
+  ell(640, 560, 172, 22, C.blueT);
+  const L = jobHits(1), fin = finalOf(1);
+  if (good(fin) && b >= fin.b + 0.2) ell(640, 562, 60, 12, C.yolk, null);
+  // cat watching from the counter (bobs its head to the beat)
+  const cm = moodFor(1, b), cb = bop(b) * 6, cs = sway(b, 0.5) * 6;
+  const tail = [[1135, 585], [1185, 560 + Math.sin(b * Math.PI) * 25], [1180, 520 + Math.sin(b * Math.PI) * 30]];
+  line(tail, 14, INK); line(tail, 8, C.lav);
+  ell(1080, 545, 62, 58, C.lav);
+  ell(1080, 560, 34, 30, C.paper, null);
+  [[-1, 1040], [1, 1120]].forEach(([k, ex]) => {
+    poly([[ex - 20 + cs, 438 - cb], [ex + k * 6 + cs, 392 - cb], [ex + 20 + cs, 438 - cb]], C.lav, INK, 4);
+    poly([[ex - 9 + cs, 432 - cb], [ex + k * 4 + cs, 408 - cb], [ex + 9 + cs, 432 - cb]], C.pinkM, null);
+  });
+  ell(1080 + cs, 455 - cb, 54, 45, C.lav);
+  face(1080 + cs, 450 - cb, 1, cm, { look:[-1, 0.4], skin:C.lav, blink:blink(1.7) });
+  pell(1080 + cs, 462 - cb, 5, 4, C.pink);
+  [-1, 1].forEach(k => { line([[1080 + cs + k * 30, 470 - cb], [1080 + cs + k * 64, 462 - cb]], 2.5); line([[1080 + cs + k * 30, 477 - cb], [1080 + cs + k * 62, 484 - cb]], 2.5); });
+  const knock = Math.max(...cuesOf('knock').map(c => pulse(b, c.b, 0.18)));
+  // remix: a fresh plain egg, knock-knock-EEK and it pops open
+  const rc = remixHit(1, b);
+  if (rc) {
+    const dip = tapIn(REMIX, FINALE, b), ry = 400 + 90 * Math.max(knock, dip) - 10 * bop(b);
+    if (!(good(rc) && b >= rc.b)) {
+      egg(640, ry, { s:1.3, mood:rc.r === 'miss' ? 'happy' : 'worried', mouth:dip > 0.2 ? 'open' : knock > 0.3 ? 'o' : undefined, look:[0, 1] });
+      mitten(640, ry);
+    } else {
+      const p = clamp((b - rc.b) / 0.6, 0, 1); g.globalAlpha = 1 - p;
+      ell(610 - p * 140, 440 + p * 60, 30, 36, C.paper); ell(670 + p * 140, 440 + p * 60, 30, 36, C.paper);
+      g.globalAlpha = 1; yolk(640, lerp(470, 556, p), false);
+    }
+    return;
+  }
+  // the golden egg, held by a mitten
+  const opened = fin.r && b >= fin.b;
+  if (b < ARRIVE[0] || (opened && !good(fin))) return;
+  const tapDip = tapIn(ARRIVE[0], ARRIVE[1], b);
+  const wind = Math.max(...L.map(h => pulse(b, h.b - (h.final ? 0.5 : 0.25), 0.25)));
+  const y = 400 + 90 * Math.max(knock, tapDip) - 50 * wind - 10 * bop(b), x = 640 + sway(b) * 6;
+  if (!opened) {
+    const cracks = L.filter(h => !h.final && good(h) && h.tb <= b).length;
+    let last = null; L.forEach(h => { if (h.r && h.tb <= b) last = h; });
+    const relieved = last && last.r === 'miss' && b - last.tb < 1.2;
+    const em = relieved ? 'happy' : cracks >= 2 ? 'worried' : 'normal';
+    const yelp = tapDip > 0.2 ? 'open' : knock > 0.3 ? 'o' : undefined;          // the egg sings EEK when you crack it
+    egg(x, y, { s:1.3, gold:true, crack:cracks, tape:finalOf(0).r === 'miss', mood:em, mouth:yelp, look:[0, 1], blink:blink(0.9) });
+    mitten(x, y);
+  } else if (b < fin.b + 1.5) {
+    const p = clamp(b - fin.b, 0, 1); g.globalAlpha = 1 - p;
+    ell(640 - 30 - p * 140, 440 + p * 60, 30, 36, C.yellow); ell(640 + 30 + p * 140, 440 + p * 60, 30, 36, C.yellow);
+    g.globalAlpha = 1;
+  }
+}
+
+function scenePan(b) {
+  printed(2, bgPan);
+  const L = jobHits(2), fin = finalOf(2), cm = moodFor(2, b), bp = bop(b);
+  cuesOf('swell').forEach(s => {
+    const p = (b - s.b) / s.d;
+    if (p > 0 && p < 1) for (let i = 0; i < 5; i++) {
+      const k = (p * 3 + i / 5) % 1; g.globalAlpha = (1 - k) * p;
+      ell(530 + i * 45 + Math.sin(k * 6 + i) * 10, 520 - k * 150, 10 + k * 14, 10 + k * 14, C.paper, null);
+    }
+    g.globalAlpha = 1;
+  });
+  // chef (head bobs, sings the call, yells "hup!" when you flip)
+  const talk = Math.max(tapIn(ARRIVE[1], ARRIVE[2], b, 0.3), tapIn(REMIX, FINALE, b, 0.3));
+  const aaand = (b >= 48 && b < 48.9) || cuesOf('sing').some(c => b >= c.b && b < c.b + 0.35);
+  const cx = 200 + sway(b) * 8, cy = 400 - bp * 8;
+  rbox(95, 500, 210, 240, C.paper);
+  rbox(140, 520, 120, 220, C.blueT, INK, 4);                            // apron
+  line([[290, 560], [410, 595 - bp * 8]], 32, INK); line([[290, 560], [410, 595 - bp * 8]], 23, C.skin);
+  ell(cx, cy, 108, 100, C.skin);
+  ell(cx - 104, cy + 4, 18, 26, C.skin); ell(cx + 104, cy + 4, 18, 26, C.skin);   // ears
+  rbox(cx - 62, cy - 190, 124, 92, C.paper);
+  ell(cx - 42, cy - 196, 42, 34, C.paper); ell(cx + 42, cy - 196, 42, 34, C.paper); ell(cx, cy - 220, 46, 38, C.paper);
+  line([[cx - 62, cy - 112], [cx + 62, cy - 112]], 4);
+  face(cx, cy - 25, 1.6, cm, { look:[1, 0.5], skin:C.skin, mouth:'none', blink:blink(2.2) });
+  ell(cx, cy + 10, 17, 14, C.blush);
+  const mo = talk > 0.2 ? 'open' : aaand ? 'o' : cm === 'happy' ? 'smile' : cm === 'stare' ? 'flat' : 'none';
+  if (mo === 'open') ell(cx, cy + 60, 21, 10 + talk * 16, C.mouth, INK, 4);
+  if (mo === 'o') ell(cx, cy + 60, 15, 19, C.mouth, INK, 4);
+  if (mo === 'smile') { g.strokeStyle = INK; g.beginPath(); g.arc(cx, cy + 48, 18, 0.15 * Math.PI, 0.85 * Math.PI); g.lineWidth = 5; g.stroke(); }
+  if (mo === 'flat') line([[cx - 16, cy + 62], [cx + 16, cy + 62]], 5);
+  ell(cx - 26, cy + 34, 32, 13, C.stache); ell(cx + 26, cy + 34, 32, 13, C.stache);
+  // pan
+  const tilt = Math.max(tapIn(ARRIVE[1], ARRIVE[2], b, 0.25), tapIn(REMIX, FINALE, b, 0.25));
+  g.save(); g.translate(620, 590 - bp * 8); g.rotate(-tilt * 0.25);
+  rbox(-300, -12, 170, 24, C.purple); ell(0, 0, 152, 44, C.pan); ell(0, -6, 128, 30, '#2F3A78', null);
+  g.restore();
+  // pancake
+  // remix: a fresh pancake, up on your HUP and down half a beat later
+  const rp = remixHit(2, b);
+  if (rp) {
+    let py = 560 - bp * 10, flip = 1, air = false;
+    if (good(rp) && b >= rp.tb && b < rp.b + 0.5) {
+      const p = (b - rp.tb) / (rp.b + 0.5 - rp.tb); air = true;
+      py = 560 - 220 * Math.sin(Math.PI * p); flip = Math.cos(Math.PI * 2 * p);
+    }
+    pancake(620, py, 95, flip, rp.r === 'miss' ? 0.6 : 0, air ? 'normal' : cm, air ? 'o' : undefined);
+    return;
+  }
+  if (b < ARRIVE[1] || (fin.r && b >= fin.b)) return;
+  const r = lerp(32, 95, clamp((b - ARRIVE[1]) / 0.5, 0, 1));
+  const burn = L.filter(h => !h.final && h.r === 'miss' && h.tb <= b).length / 2.5 + (finalOf(1).r === 'miss' ? 0.15 : 0);
+  let py = 560 - bp * 10, flip = 1, air = false;
+  L.forEach(h => {
+    const land = h.b + 1;                                  // up on your HUP, down on the plop
+    if (!h.final && good(h) && b >= h.tb && b < land) {
+      const p = (b - h.tb) / (land - h.tb); air = true;
+      py = 560 - 280 * Math.sin(Math.PI * p); flip = Math.cos(Math.PI * 2 * p);
+    }
+  });
+  pancake(620, py, r, flip, burn, air ? 'normal' : cm, air ? 'o' : undefined);
+}
+
+function dogJump(b) {                                  // the jump for the final catch
+  if (lastTap < THROW || lastTap >= REMIX) return 0;          // remix woofs bark, they don't jump
+  const d = b - lastTap;
+  if (d < 0) return 0;
+  if (d < 0.12) return 150 * d / 0.12;
+  if (d < 0.7) return 150 * (1 - Math.pow((d - 0.12) / 0.58, 2));
+  return 0;
+}
+function sceneDog(b) {
+  printed(3, bgDog);
+  [[300, 120], [700, 90]].forEach(([x, y]) => { const dx = live(b) ? (b * 6) % 200 : 0; ell(x + dx, y, 62, 24, C.paper, null); ell(x + 40 + dx, y - 14, 40, 22, C.paper, null); });
+  const L = jobHits(3), fin = finalOf(3), bp = bop(b);
+  const fed = good(fin) && b >= fin.b;
+  // kid with a whistle
+  const om = moodFor(3, b);
+  const whistling = CUES.some(c => c.k === 'whistle' && b >= c.b - 0.05 && b < c.b + c.d);
+  const throwing = b >= THROW - 0.2 && b < THROW + 0.6;
+  const ks = sway(b) * 5;
+  rbox(230, 556, 20, 50, C.blue, INK, 4); rbox(272, 556, 20, 50, C.blue, INK, 4);
+  ell(261 + ks * 0.5, 505, 60, 74, C.pink);
+  line([[230 + ks * 0.5, 470], [292 + ks * 0.5, 470]], 6, C.paper); line([[226 + ks * 0.5, 500], [296 + ks * 0.5, 500]], 6, C.paper);   // stripes
+  const hand = throwing ? [lerp(360, 430, (b - THROW + 0.2) / 0.8), lerp(480, 370, (b - THROW + 0.2) / 0.8)] : [360, 480 - bp * 6];
+  line([[300, 480], hand], 24, INK); line([[300, 480], hand], 15, C.skin);
+  const kh = 380 - bp * 8;
+  ell(261 + ks, kh, 56, 54, C.skin);
+  g.fillStyle = C.blue; g.beginPath(); g.arc(261 + ks + MIS, kh - 15 + 2, 58, Math.PI, 0); g.fill();
+  g.strokeStyle = INK; g.lineWidth = 4.5; g.beginPath(); g.arc(261 + ks, kh - 15, 58, Math.PI, 0); g.closePath(); g.stroke();
+  rbox(261 + ks, kh - 23, 82, 13, C.blue, INK, 4);
+  pell(261 + ks, kh - 73, 9, 9, C.yellow, INK, 3);
+  face(266 + ks, kh + 5, 1.1, om, { look:[1, 0.2], skin:C.skin, mouth:whistling ? 'o' : undefined, blink:blink(0.6) });
+  cuesOf('whistle').forEach(c => { if (b >= c.b && b < c.b + 1) note(300 + (c.b % 1) * 60, 320 - 80 * (b - c.b), 1 - (b - c.b)); });
+  // dog (tail wags on the beat, barks when you tap)
+  const x = 950, y = 600 - dogJump(b);
+  const bark = Math.max(tapIn(ARRIVE[2], THROW, b, 0.22), tapIn(REMIX, FINALE, b, 0.22));
+  const dm = fed ? 'happy' : moodFor(3, b);
+  const tl = [[x + 100, y - 100], [x + 150, y - 150 + Math.sin(b * Math.PI * 2) * 25]];
+  line(tl, 16, INK); line(tl, 9, C.dog);
+  [-70, -30, 30, 70].forEach((dx, i) => { const lift = live(b) && i % 2 === Math.floor(b) % 2 ? bp * 8 : 0; rbox(x + dx - 11, y - 54 - lift, 22, 54, i % 2 ? C.dog : C.dogD, INK, 4); });
+  ell(x, y - 85, 117, 56, C.dog);
+  ell(x + 24, y - 98, 32, 22, C.dogD, null);
+  const hx = x - 110 + sway(b) * 6, hy = y - 170 - bp * 10 - bark * 12;
+  rbox(hx - 20, hy + 36, 70, 14, C.red, INK, 4);                         // collar
+  pell(hx + 14, hy + 56, 8, 8, C.yellow, INK, 3);
+  ell(hx, hy, 58, 54, C.dog);
+  ell(hx + 34, hy - 24 - bp * 6, 20, 44, C.purple);
+  ell(hx - 50, hy + 14, 37, 25, C.snout);
+  pell(hx - 83, hy + 4, 11, 9, INK); pell(hx - 86, hy + 1, 3, 2, C.paper);
+  if (bark > 0.2) { ell(hx - 52, hy + 40, 19, 8 + bark * 12, C.mouth, INK, 3); pell(hx - 52, hy + 46 + bark * 4, 9, 5, C.pink); }
+  else if (dm === 'happy') ell(hx - 50, hy + 44, 10, 13, C.pink, INK, 3);
+  face(hx - 6, hy - 16, 1, dm, { look:[-1, -0.2], skin:C.dog, mouth:'none', blink:blink(1.1) });
+  if (dm === 'stare' && fin.r === 'miss') printText('?', hx + 50, hy - 70, 54, C.pink, FONT_D, 3);
+  if (fed && b > FINALE + 1) [0, 1, 2].forEach(i => { const k = (b - FINALE - 1 + i * 0.4) % 1.2; g.globalAlpha = 1 - k / 1.2; heart(hx - 30 + i * 30, hy - 80 - k * 90, 12); g.globalAlpha = 1; });
+  // pancake frisbee
+  if (b < ARRIVE[2]) return;
+  const burnt = jobHits(2).filter(h => h.r === 'miss').length / 2.5;
+  const Cc = [790, 300];
+  if (b < THROW) { pancake(hand[0] + 10, hand[1] - 20, 60, 0.4, burnt, 'normal'); return; }
+  if (!fin.r || b < fin.b) { const p = clamp(b - THROW, 0, 1); pancake(lerp(hand[0], Cc[0], p), lerp(400, Cc[1], p) - 60 * Math.sin(Math.PI * p), 60, 0.5 + 0.5 * Math.cos(b * 10), burnt, 'happy'); return; }
+  if (good(fin)) pancake(hx - 70, hy + 40, 60, 0.4, burnt, 'happy');
+  else { const p = clamp((b - fin.b) / 0.4, 0, 1); pancake(lerp(Cc[0], hx, p), lerp(Cc[1], hy - 60, p), 60, 0.4, burnt, 'stare'); }
+}
+function heart(x, y, s) {
+  g.beginPath(); g.moveTo(x, y + s);
+  g.bezierCurveTo(x - s * 1.6, y - s * 0.2, x - s * 0.8, y - s * 1.4, x, y - s * 0.5);
+  g.bezierCurveTo(x + s * 0.8, y - s * 1.4, x + s * 1.6, y - s * 0.2, x, y + s);
+  g.fillStyle = C.pink; g.fill(); g.strokeStyle = INK; g.lineWidth = 3; g.stroke();
+}
+
+// ================= day 2 ("Cozy"): props =================
+// Every tap meets something you can see coming: a sheep landing, a ball reaching a paw, a snowball or a hat arriving.
+const arc = (a, z, p, h) => [lerp(a[0], z[0], p), lerp(a[1], z[1], p) - Math.sin(Math.PI * clamp(p, 0, 1)) * h];
+function wool(x, y, rx, ry, o = {}) {                  // a scalloped wool cloud
+  const n = 11, c = o.c || C.paper;
+  for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; ell(x + Math.cos(a) * rx * 0.78, y + Math.sin(a) * ry * 0.72, rx * 0.4, ry * 0.42, c); }
+  ell(x, y, rx * 0.86, ry * 0.8, c, null);              // covers the inner outlines so only the scallops show
+}
+function yarnBall(x, y, r, o = {}) {
+  ell(x, y, r, r, o.c || C.pink);
+  [-0.45, 0, 0.45].forEach(k => line([[x - r * 0.75, y + k * r - r * 0.25], [x, y + k * r + r * 0.1], [x + r * 0.75, y + k * r - r * 0.3]], 3, C.mouth));
+  for (let i = 0; i < (o.knots || 0); i++) line([[x - 10 + i * 12, y - 8], [x - 2 + i * 12, y + 6], [x + 4 + i * 12, y - 6], [x - 6 + i * 12, y + 2]], 3, INK);
+}
+function snowball(x, y, r, yarn) {                      // yarn = the hero yarn ball, rolled in snow
+  ell(x, y, r, r, yarn ? C.pinkT : C.paper);
+  if (yarn) { [-0.4, 0.1].forEach(k => line([[x - r * 0.7, y + k * r], [x, y + k * r + 8], [x + r * 0.7, y + k * r - 4]], 3, C.pink)); pell(x - r * 0.3, y - r * 0.4, 6, 6, C.paper); }
+}
+function scarfFly(x, y, b) {                           // a striped scarf flapping through the air
+  const pts = [0, 1, 2, 3, 4].map(i => [x - 80 + i * 40, y + Math.sin(b * 14 + i) * 14]);
+  line(pts, 30, INK); line(pts, 21, C.pink);
+  pts.slice(0, 4).forEach(([px, py], i) => i % 2 && line([[px + 4, py - 9], [px + 4, py + 9]], 6, C.yellow));
+}
+function scissors(x, y, open) {                        // your scissors: they snap shut on every tap
+  g.save(); g.translate(x, y); g.rotate(-0.6);
+  [-1, 1].forEach(k => {
+    g.save(); g.rotate(k * open);
+    line([[0, 0], [-112, 0]], 10, INK); line([[-2, 0], [-108, 0]], 5, C.paper);
+    ell(32, k * 14, 20, 14, null, INK, 9); ell(32, k * 14, 20, 14, null, C.pink, 5);
+    g.restore();
+  });
+  pell(0, 0, 6, 6, C.yellow, INK, 2);
+  g.restore();
+}
+function sheep(x, y, o = {}) {                         // faces right, the way it hops
+  const s = o.ram ? 1.2 : 1;
+  [-40, -14, 14, 40].forEach((dx, i) => line([[x + dx * s, y + 34 * s], [x + dx * s + (o.run ? Math.sin(o.run * 20 + i) * 8 : 0), y + 66 * s]], 9, INK));
+  if (o.wooly) wool(x, y, 92 * s, 64 * s); else ell(x, y + 8, 62 * s, 44 * s, C.bare);
+  const hx = x + 80 * s, hy = y - 28 * s;
+  if (o.ram) [-1, 1].forEach(k => { ell(hx + k * 30 * s, hy - 26 * s, 17 * s, 17 * s, null, INK, 9); ell(hx + k * 30 * s, hy - 26 * s, 17 * s, 17 * s, null, C.purple, 5); });
+  ell(hx - 30 * s, hy - 8, 18 * s, 9 * s, C.purple); ell(hx + 30 * s, hy - 8, 18 * s, 9 * s, C.purple);
+  ell(hx, hy, 36 * s, 42 * s, C.lav);
+  wool(hx, hy - 40 * s, 30 * s, 14 * s);
+  face(hx + 4, hy - 4, 0.8 * s, o.mood || 'normal', { look:o.look || [1, 0], skin:C.lav, blink:o.blink });
+}
+function goat(x, y, meh, cut, mood) {                  // the trickster's head
+  poly([[x - 24, y - 44], [x - 44, y - 92], [x - 8, y - 52]], C.purple, INK, 3);
+  poly([[x + 10, y - 50], [x + 22, y - 98], [x + 30, y - 46]], C.purple, INK, 3);
+  ell(x - 52, y - 16, 24, 11, C.goat); ell(x + 48, y - 16, 24, 11, C.goat);
+  ell(x, y, 46, 58, C.goat);
+  pell(x - 6, y + 28, 17, 11, C.pinkT, INK, 2);
+  if (cut) poly([[x - 12, y + 52], [x + 2, y + 52], [x - 5, y + 64]], C.paper, INK, 3);   // you snipped its beard
+  else poly([[x - 14, y + 52], [x + 4, y + 52], [x - 5, y + 98]], C.paper, INK, 3);
+  face(x - 4, y - 10, 0.95, mood, { look:[1, 0.2], skin:C.goat, mouth:meh > 0.3 ? 'open' : undefined, blink:blink(2.6) });
+}
+function goatBody(x, y, o) {
+  [-40, -14, 14, 40].forEach(dx => line([[x + dx, y + 30], [x + dx, y + 66]], 8, INK));
+  ell(x, y, 80, 50, C.goat);
+  poly([[x - 78, y - 14], [x - 100, y - 36], [x - 84, y + 2]], C.goat, INK, 3);
+  goat(x + 74, y - 38, o.meh, o.cut, o.mood);
+}
+function grandma(gx0, b, mood, toss) {
+  const gx = gx0 + sway(b) * 6, hy = 350 - bop(b) * 6;
+  rbox(gx0 - 105, 320, 210, 250, C.lav); line([[gx0 - 120, 640], [gx0 + 120, 640]], 9, C.purple);
+  ell(gx, 520, 96, 110, C.purple); rbox(gx - 42, 470, 84, 96, C.pinkT, INK, 3);
+  const ax = gx + 95, ay = 430 - toss * 40;            // her tossing arm lifts on every toss
+  line([[gx + 50, 470], [ax, ay]], 20, INK); line([[gx + 50, 470], [ax, ay]], 12, C.purple); ell(ax, ay, 14, 14, C.skin);
+  ell(gx, hy, 64, 62, C.skin); ell(gx, hy - 50, 60, 26, C.paper); ell(gx, hy - 84, 28, 22, C.paper);
+  face(gx + 4, hy + 2, 1.15, mood, { look:[1, 0.3], skin:C.skin, blink:blink(0.8) });
+  [-1, 1].forEach(k => pell(gx + 4 + k * 15, hy + 2, 13, 13, null, INK, 3)); line([[gx - 2, hy], [gx + 10, hy]], 3);
+}
+function kitten(x, y, mood, swipe, b) {
+  rbox(x - 95, y + 40, 190, 40, C.teal);
+  const tail = [[x + 50, y + 30], [x + 100, y - 10 + Math.sin(b * Math.PI) * 12], [x + 92, y - 46]];
+  line(tail, 13, INK); line(tail, 7, C.orange);
+  ell(x, y, 62, 52, C.orange);
+  [-20, 0, 20].forEach(dx => line([[x + dx, y - 44], [x + dx + 6, y - 24]], 4, C.dogD));
+  const hx = x - 34, hy = y - 66;
+  [[-1, hx - 26], [1, hx + 26]].forEach(([k, ex]) => poly([[ex - 16, hy - 20], [ex + k * 6, hy - 58], [ex + 16, hy - 20]], C.orange, INK, 4));
+  ell(hx, hy, 46, 40, C.orange);
+  face(hx - 6, hy, 0.8, mood, { look:[-1, -0.4], skin:C.orange, mouth:swipe > 0.3 ? 'open' : undefined, blink:blink(2.1) });
+  [-1, 1].forEach(k => line([[hx - 6 + k * 20, hy + 12], [hx - 6 + k * 48, hy + 8]], 2.5));
+  g.save(); g.translate(x - 30, y - 20); g.rotate(0.45 + swipe * 0.8);   // the batting paw swings up to meet the ball
+  line([[0, 0], [-96, 0]], 20, INK); line([[0, 0], [-96, 0]], 13, C.orange); ell(-100, 0, 15, 13, C.paper);
+  g.restore();
+}
+function kid(x, b, coat, hat, mood, throwP, ph = 0, bells = 0) {
+  const ky = 470 - bop(b + ph) * 6;
+  ell(x, 562, 54, 72, coat);
+  const ax = x + 50 + throwP * 30, ay = 500 - throwP * 90;   // the throwing arm swings up on every throw
+  line([[x + 30, 520], [ax, ay]], 18, INK); line([[x + 30, 520], [ax, ay]], 11, coat); ell(ax, ay, 12, 12, C.skin);
+  if (bells) { const by = 486 - bells * 26; line([[x - 30, 520], [x - 58, by]], 16, INK); line([[x - 30, 520], [x - 58, by]], 9, coat); pell(x - 60, by - 8, 10, 10, C.yellow, INK, 2.5); }
+  ell(x, ky, 48, 46, C.skin);
+  ell(x, ky - 32, 50, 24, hat); pell(x, ky - 60, 12, 12, C.paper, INK, 2.5);
+  face(x + 4, ky + 4, 0.95, mood, { look:[1, -0.3], skin:C.skin, blink:blink(x / 100) });
+}
+function snowfall(b) {
+  for (let i = 0; i < 42; i++) {
+    const x = (i * 97) % W + Math.sin(i + (live(b) ? b : 0)) * 8, y = (i * 53 + (live(b) ? b * 40 : 0)) % 560;
+    pell(x, y, 4, 4, C.paper, INK, 1.2);
+  }
+}
+// Snowman geometry: base, middle and head stacked from the ground up (shared by the Stack and Dress jobs).
+function snowGeo(x, rB, rM, rH, groundY = 612, crooked = false) {
+  const baseC = groundY - rB * 0.92, top1 = rB ? baseC - rB * 0.86 : groundY;
+  const midC = top1 - rM * 0.8, top2 = rM ? midC - rM * 0.84 : top1;
+  const hx = x + (crooked ? 18 : 0), headC = top2 - rH * 0.78, top3 = rH ? headC - rH * 0.86 : top2;
+  return { baseC, top1, midC, top2, hx, headC, top3 };
+}
+function snowman(x, o) {
+  const G = snowGeo(x, o.rB, o.rM, o.rH || 0, (o.groundY || 612) - (o.hop || 0), o.crooked);
+  const sw = o.alive ? Math.sin(o.b * Math.PI) * 10 : 0;
+  if (o.rB) ell(x, G.baseC, o.rB, o.rB * 0.92, C.paper);
+  if (o.rM) {
+    const aw = o.alive ? Math.sin(o.b * Math.PI * 2) * 30 : 0;
+    line([[x - o.rM * 0.9, G.midC], [x - o.rM - 70, G.midC - 30 - aw]], 6, C.purple);
+    line([[x + o.rM * 0.9, G.midC], [x + o.rM + 70, G.midC - 20 + aw]], 6, C.purple);
+    ell(x + sw * 0.5, G.midC, o.rM, o.rM * 0.9, C.paper);
+    for (let i = 0; i < (o.buttons || 0); i++) pell(x + sw * 0.5, G.midC - 10 + i * 32, 7, 7, INK);
+  }
+  if (o.rH) {
+    const hx = G.hx + sw;
+    if (o.scarf) { rbox(hx - o.rH * 1.1, G.top2 - 10, o.rH * 2.2, 24, C.pink, INK, 3); rbox(hx + 22, G.top2 + 6, 24, 54, C.pink, INK, 3); }
+    ell(hx, G.headC, o.rH, o.rH * 0.9, C.paper);
+    if (o.yarnHead) [-1, 0, 1].forEach(k => line([[hx - 26 + k * 6, G.headC - o.rH * 0.6], [hx + k * 10, G.headC - o.rH * 0.84], [hx + 26 + k * 6, G.headC - o.rH * 0.6]], 3, C.pink));
+    face(hx, G.headC - 6, 1, o.mood, { look:o.look || [-0.4, 0], skin:C.paper, blink:blink(1.9) });
+    if (o.nose) poly([[hx, G.headC + 6], [hx + 44, G.headC + 14], [hx, G.headC + 18]], C.orange, INK, 3);
+    if (o.hat) { rbox(hx - 40, G.top3 - 52, 80, 56, INK, INK, 3); rbox(hx - 62, G.top3, 124, 12, INK, INK, 3); rbox(hx - 40, G.top3 - 10, 80, 10, C.red, INK, 2); }
+  }
+  for (let i = 0; i < Math.min(2, o.stars || 0); i++) star(x - 30 + i * 60, G.baseC, 14, C.yellow);
+  return G;
+}
+function dressItem(item, x, y, b) {
+  if (item === 'nose') poly([[x - 22, y - 7], [x + 24, y], [x - 22, y + 7]], C.orange, INK, 3);
+  if (item === 'button') pell(x, y, 8, 8, INK);
+  if (item === 'scarf') scarfFly(x, y, b);
+  if (item === 'hat') { rbox(x - 40, y - 54, 80, 56, INK, INK, 3); rbox(x - 62, y - 2, 124, 12, INK, INK, 3); rbox(x - 40, y - 12, 80, 10, C.red, INK, 2); }
+  if (item === 'star') star(x, y, 14, C.yellow);
+}
+
+// ================= day 2: backgrounds =================
+function bgShear() {
+  box(0, 0, W, H, C.tealT);
+  for (let i = 0; i < 17; i++) box(i * 80, 0, 36, 640, '#B2E2D2');
+  halftone(0, 460, W, 180, C.teal, 0.04, 0.4, 13);
+  for (let i = 0; i < 26; i++) for (let j = 0; j < 2; j++) box(i * 50, 640 + j * 40, 50, 40, (i + j) % 2 ? INK : C.paper);
+  line([[0, 640], [W, 640]], 6);
+  rbox(60, 130, 50, 320, C.paper);                      // barber pole
+  g.save(); g.beginPath(); g.rect(64, 134, 42, 312); g.clip();
+  for (let k = -2; k < 9; k++) line([[60, 130 + k * 44], [110, 160 + k * 44]], 11, k % 2 ? C.red : C.blue);
+  g.restore(); ell(85, 124, 30, 14, C.yellow); ell(85, 456, 30, 14, C.yellow);
+  rbox(170, 140, 230, 270, C.purple); box(186, 156, 198, 238, C.blueT);   // mirror
+  line([[220, 190], [300, 270]], 6, C.paper); line([[250, 180], [340, 270]], 4, C.paper);
+  rbox(1030, 220, 210, 420, C.orange); box(1050, 240, 170, 400, '#2F3A78');  // doorway the sheep leave through
+}
+function bgBat() {
+  box(0, 0, W, H, C.orangeT);
+  halftone(0, 20, W, 560, C.pinkM, 0.36, 0.36, 52);
+  box(0, 620, W, 100, C.wood); for (let i = 0; i < 8; i++) line([[i * 170 + 40, 620], [i * 170 + 70, 720]], 3, '#C47E3E');
+  line([[0, 620], [W, 620]], 6);
+  ell(640, 660, 420, 40, C.pinkM, null);               // rug
+  rbox(1010, 90, 220, 230, C.purple); box(1026, 106, 188, 198, '#2F3A78');   // window onto a snowy night
+  for (let i = 0; i < 14; i++) pell(1040 + (i * 37) % 170, 120 + (i * 53) % 170, 4, 4, C.paper);
+  line([[1120, 106], [1120, 304]], 7); line([[1026, 205], [1214, 205]], 7);
+}
+function bgWrap() {
+  box(0, 0, W, H, C.blueT);
+  halftone(0, 0, W, 260, C.blueM, 0.55, 0.0, 15);
+  ell(1080, 120, 46, 46, C.yellowT); ell(1098, 108, 40, 40, C.blueT, null);   // crescent moon
+  ell(300, 580, 520, 150, C.paper); ell(1000, 590, 480, 140, C.paper);
+  box(0, 560, W, 160, C.paper); halftone(0, 600, W, 120, C.blueM, 0.1, 0.55, 12);
+  line([[0, 560], [W, 560]], 5, C.blueM);
+  [[80, 560, 1], [1190, 560, 1.2], [1080, 570, 0.8]].forEach(([x, y, s]) => {
+    poly([[x - 60 * s, y], [x, y - 200 * s], [x + 60 * s, y]], C.teal); line([[x, y], [x, y + 20]], 10, C.wood);
+  });
+}
+
+// ================= day 2: scenes =================
+function sceneShear(b) {                               // hop, hop, land in the chair: snip!
+  printed(4, bgShear);
+  const L = hits.filter(h => h.l === 0), fin = finalOf(0);
+  const tapP = Math.max(tapIn(0, ARRIVE[0], b, 0.18), tapIn(REMIX, FINALE, b, 0.18));
+  rbox(760, 290, 60, 270, C.pink); rbox(470, 556, 370, 40, C.pink); rbox(615, 596, 50, 44, C.purple); ell(640, 646, 120, 16, C.purple);
+  const pile = Math.min(6, L.filter(h => h.s && !h.final && good(h) && b >= h.tb + 0.5).length + (good(fin) && b >= REMIX ? 1 : 0));
+  for (let i = 0; i < pile; i++) wool(220 + (i % 3) * 44, 618 - Math.floor(i / 3) * 26, 34, 20);
+  L.forEach(h => {
+    const [h0, h1] = h.hops, land = h.b;
+    if (b < h0 - 0.02) return;
+    let x, y, run = 0;
+    if (b < h1) [x, y] = arc([-90, 520], [330, 520], (b - h0) / (h1 - h0), 110);
+    else if (b < land) [x, y] = arc([330, 520], [640, 488], (b - h1) / (land - h1), 130);
+    else {
+      const t0 = h.r ? Math.max(land, h.tb) + 0.25 : 1e9;   // sits in the chair until judged, then scampers out the door
+      if (b < t0) { x = 640; y = 488; }
+      else { const p = (b - t0) / 0.9; if (p >= 1) return; x = lerp(640, 1400, p); y = 500 - Math.abs(Math.sin(p * Math.PI * 3)) * 40; run = b; }
+    }
+    if (h.decoy) {
+      goatBody(x, y, { meh:pulse(b, 14.2, 0.25), cut:h.r === 'miss' && b >= h.tb, mood:h.r === 'miss' ? 'stare' : b >= land ? 'happy' : 'normal' });
+      return;
+    }
+    const sheared = good(h) && b >= h.tb;
+    sheep(x, y, { wooly:!sheared, ram:h.ram, run, mood:h.r === 'miss' ? 'stare' : sheared ? 'happy' : 'normal', look:b < land ? [1, 0.3] : [1, -0.6], blink:blink(h.b) });
+    if (sheared && !h.final && b < h.tb + 0.5) {        // the fleece puffs off onto the pile
+      const p = (b - h.tb) / 0.5; wool(lerp(640, 280, p), lerp(470, 600, p) - Math.sin(Math.PI * p) * 160, 70 - p * 30, 46 - p * 20);
+    }
+  });
+  scissors(720, 330, 0.42 * (1 - tapP));
+}
+
+const BAT_HAND = [395, 420], BAT_PAW = [850, 440];
+function sceneBat(b) {                                 // grandma tosses, the ball reaches the kitten's paw: bat!
+  printed(5, bgBat);
+  const mood = moodFor(1, b), R = hits.filter(h => h.l === 1);
+  const tapP = Math.max(tapIn(ARRIVE[0] - 1, ARRIVE[1], b, 0.2), tapIn(REMIX, FINALE, b, 0.2));
+  const tossP = Math.max(0, ...cuesOf('toss').map(c => pulse(b, c.b + 0.05, 0.25)));
+  const wx = 620, wy = 420, sp = live(b) ? b * 2 : 0;   // grandma's spinning wheel, still turning from spinning the wool
+  line([[wx, wy], [wx - 45, 620]], 7); line([[wx, wy], [wx + 45, 620]], 7);
+  ell(wx, wy, 70, 70, null, INK, 12); ell(wx, wy, 70, 70, null, C.wood, 7);
+  for (let i = 0; i < 6; i++) { const a = sp + i * Math.PI / 3; line([[wx, wy], [wx + Math.cos(a) * 62, wy + Math.sin(a) * 62]], 4); }
+  grandma(300, b, mood, tossP);
+  kitten(930, 540, mood, tapP, b);
+  let cur = null; R.forEach(h => { if (h.toss <= b) cur = h; });
+  let pos = null;
+  if (!cur) { if (b >= ARRIVE[0] - 0.05) pos = BAT_HAND; }
+  else if (b < cur.b) pos = arc(BAT_HAND, BAT_PAW, (b - cur.toss) / (cur.b - cur.toss), cur.final ? 300 : 170);
+  else if (!cur.r) pos = BAT_PAW;
+  else if (cur.final && !cur.remix) pos = null;        // the flight carries it out the window
+  else if (good(cur)) pos = arc(BAT_PAW, BAT_HAND, clamp((b - cur.tb) / (cur.b + 1 - cur.tb), 0, 1), 170);
+  else { const p = clamp((b - cur.b) / 0.8, 0, 1); pos = [lerp(BAT_PAW[0], 760, p), lerp(BAT_PAW[1], 600, p) - Math.sin(Math.PI * p) * 60]; }
+  const knots = R.filter(h => !h.remix && h.r === 'miss' && h.tb <= b).length;
+  if (pos) yarnBall(pos[0], pos[1], 30, { knots:Math.min(3, knots) });
+}
+
+const STACK_HAND = [300, 430];
+const stackSizes = p => ({ rB:p >= 2 ? 86 : p >= 1 ? 64 : 0, rM:[0, 0, 0, 44, 56, 62, 68][Math.min(p, 6)] });
+function sceneStack(b) {                               // two snowballs in the air at once: pat each one as it lands
+  printed(6, bgWrap); snowfall(b);
+  const S = hits.filter(h => h.l === 2), fin = finalOf(2), mood = moodFor(2, b);
+  const pats = S.filter(h => !h.remix && !h.final && good(h) && b >= h.b).length;
+  const throwP = Math.max(0, ...S.map(h => pulse(b, h.throw + 0.05, 0.25)));
+  kid(260, b, C.red, C.yellow, mood, throwP);
+  const tapP = Math.max(tapIn(ARRIVE[1], HANDOFFS[2] + 0.5, b, 0.2), tapIn(REMIX, FINALE, b, 0.2));
+  S.filter(h => !h.remix && h.r === 'miss' && h.tb <= b).forEach((h, i) => ell(700 + i * 64, 630, 30, 10, C.paper));   // dropped ones
+  const sz = stackSizes(b >= REMIX ? 6 : pats), headOn = (good(fin) && b >= fin.b) || b >= REMIX;
+  if (!(fin.r && b >= HANDOFFS[2] && b < REMIX)) snowman(860, { ...sz, rH:headOn ? 50 : 0, yarnHead:true, mood, b, hop:tapP * 8 });
+  S.forEach(h => {
+    if (b < h.throw || b >= h.b) return;
+    const before = S.filter(q => !q.remix && !q.final && q.b < h.b && (q.r ? good(q) : true)).length;   // where the stack will be when it lands
+    const s2 = h.remix ? stackSizes(6) : stackSizes(before), G = snowGeo(860, s2.rB, s2.rM, h.remix ? 50 : 0);
+    const [x, y] = arc(STACK_HAND, [860, G.top3 - (h.final ? 40 : 20)], (b - h.throw) / (h.b - h.throw), h.final ? 320 : 240);
+    snowball(x, y, h.final ? 44 : 22, h.final);
+  });
+}
+
+function sceneDress(b) {                               // the kids toss each thing: pop it on as it lands
+  printed(7, bgWrap); snowfall(b);
+  const D = hits.filter(h => h.l === 3), fin = finalOf(3), mood = moodFor(3, b);
+  const stack = jobHits(2), sf = finalOf(2), sz = stackSizes(Math.max(1, stack.filter(h => !h.final && good(h)).length));
+  const crooked = sf.r === 'miss', alive = good(fin) && b >= fin.b;
+  const got = it => D.filter(h => h.item === it && !h.remix && good(h) && b >= h.b).length;
+  const bells = Math.max(0, ...cuesOf('jingle').map(c => pulse(b, c.b + 0.05, 0.25)));
+  const throwP = Math.max(0, ...D.map(h => pulse(b, h.throw + 0.05, 0.25)));
+  kid(230, b, C.red, C.yellow, mood, throwP, 0, bells); kid(370, b, C.teal, C.pink, mood, 0, 0.5, bells);
+  const tapP = tapIn(ARRIVE[2], FINALE, b, 0.2);
+  if (b >= ARRIVE[2] - 0.05) snowman(860, { ...sz, rH:50, yarnHead:true, crooked, nose:got('nose') > 0, buttons:got('button'), scarf:got('scarf') > 0,
+    hat:alive, stars:D.filter(h => h.remix && good(h) && b >= h.b).length, mood:alive ? 'happy' : mood, alive, b, hop:tapP * 10 });
+  const G = snowGeo(860, sz.rB, sz.rM, 50, 612, crooked);
+  const target = (h, i) => ({ nose:[G.hx + 22, G.headC + 12], button:[860, G.midC - 10 + (i % 2) * 32], scarf:[860, G.top2],
+    hat:[G.hx, G.top3 + 2], star:[830, G.baseC] })[h.item];
+  D.forEach((h, i) => {
+    if (b >= h.throw && b < h.b) dressItem(h.item, ...arc([330, 440], target(h, i), (b - h.throw) / (h.b - h.throw), h.item === 'hat' ? 300 : 170), b);
+    else if (h.r === 'miss' && !h.remix && b >= h.tb) dressItem(h.item, 690 + (i % 5) * 50, 632, b);   // missed: it drops in the snow
+  });
+  if (alive && b > FINALE + 1) [0, 1, 2].forEach(i => { const k = (b - FINALE - 1 + i * 0.4) % 1.2; g.globalAlpha = 1 - k / 1.2; heart(830 + i * 30, G.top3 - 80 - k * 90, 12); g.globalAlpha = 1; });
+}
+
+const FLIGHTS2 = [   // day 2's hero object between jobs: fleece → (spun on the way) yarn ball → yarn snowball → the whole snowman
+  { a:[640, 470], z:[W + BAT_HAND[0], BAT_HAND[1]], draw:(x, y, b) => (b - HANDOFFS[0]) / PAN < 0.5 ? wool(x, y, 70, 50) : yarnBall(x, y, 30) },
+  { a:[W + BAT_PAW[0], BAT_PAW[1]], z:[2 * W + STACK_HAND[0], STACK_HAND[1]], draw:(x, y) => snowball(x, y, 40, true) },
+  { a:[2 * W + 860, 612], z:[3 * W + 860, 612], draw:(x, y, b) => {
+      const st = jobHits(2), s2 = stackSizes(Math.max(1, st.filter(h => !h.final && good(h)).length));
+      snowman(x, { ...s2, rH:50, yarnHead:true, crooked:finalOf(2).r === 'miss', groundY:y, mood:'happy', b });
+    } },
+];
+
+// ================= day 3 ("Big Top"): props =================
+const toss = (a, z, p, h) => [lerp(a[0], z[0], p), lerp(a[1], z[1], p) - 4 * h * p * (1 - p)];   // a true parabola from a to z, h high
+function circusBall(x, y, r, spin = 0) {
+  ell(x, y, r, r, C.yellow);
+  g.save(); g.beginPath(); g.arc(x, y, r - 3, 0, Math.PI * 2); g.clip();
+  [C.red, C.blue, C.teal].forEach((c, i) => { const a = spin + i * 2.1; g.fillStyle = c; g.beginPath(); g.moveTo(x, y); g.arc(x, y, r, a, a + 0.8); g.fill(); });
+  g.restore();
+  pell(x, y, r * 0.24, r * 0.24, C.paper, INK, 2);
+}
+function spotlights(b) {                               // two beams sweeping slowly over the ring
+  g.save(); g.globalAlpha = 0.16; g.fillStyle = C.yellowT;
+  [[200, 1], [1080, -1]].forEach(([x, k]) => {
+    const a = (live(b) ? Math.sin(b * Math.PI / 4) : 0) * 0.35 * k;
+    g.beginPath(); g.moveTo(x, -10); g.lineTo(x + Math.sin(a - 0.25) * 900, 740); g.lineTo(x + Math.sin(a + 0.25) * 900, 740); g.closePath(); g.fill();
+  });
+  g.restore();
+}
+function elephant(x, y, s, o = {}) {                   // faces right; y = where its feet stand
+  const w = o.walk || 0;
+  const leg = (dx, lift) => rbox(x + dx * s - 14 * s, y - 70 * s - lift, 28 * s, 70 * s, C.lav, INK, 4);
+  leg(-55, Math.max(0, Math.sin(w * Math.PI)) * 14 * s); leg(-25, Math.max(0, -Math.sin(w * Math.PI)) * 14 * s);
+  leg(25, Math.max(0, -Math.sin(w * Math.PI)) * 14 * s);
+  leg(60, (o.lift || 0) * 70 * s);                     // the front foot: it lifts for the stomp
+  line([[x - 98 * s, y - 120 * s], [x - 122 * s, y - 88 * s]], 5);
+  ell(x, y - 112 * s, 100 * s, 64 * s, C.lav);
+  rbox(x - 40 * s, y - 176 * s, 80 * s, 26 * s, C.red, INK, 3);   // parade blanket
+  const hx = x + 92 * s, hy = y - 142 * s;
+  ell(hx - 30 * s, hy + 6 * s, 34 * s, 46 * s, C.pinkM);
+  ell(hx, hy, 50 * s, 46 * s, C.lav);
+  const tr = o.ball ? [[hx + 30 * s, hy + 10 * s], [hx + 70 * s, hy - 10 * s], [hx + 74 * s, hy - 48 * s]]
+                    : [[hx + 30 * s, hy + 14 * s], [hx + 58 * s, hy + 40 * s], [hx + 66 * s, hy + 80 * s]];
+  line(tr, 26 * s, INK); line(tr, 18 * s, C.lav);
+  face(hx + 4 * s, hy - 8 * s, 0.85 * s, o.mood || 'normal', { look:[1, 0.3], skin:C.lav, mouth:'none', blink:o.blink });
+  line([[hx - 6 * s, hy - 44 * s], [hx - 18 * s, hy - 92 * s]], 7 * s, C.pink); pell(hx - 6 * s, hy - 44 * s, 9 * s, 9 * s, C.yellow, INK, 2);
+  if (o.ball) circusBall(hx + 74 * s, hy - 82 * s, 30 * s, (o.b || 0) * 3);
+}
+function bigDrum(x, y, squash) {                       // a flat parade drum the elephants stomp on
+  rbox(x - 120, y, 240, 52, C.blue);
+  for (let i = 0; i < 6; i++) line([[x - 110 + i * 40, y + 4], [x - 90 + i * 40, y + 48], [x - 70 + i * 40, y + 4]], 3, C.yellow);
+  ell(x, y, 120, 26 - squash * 8, C.paper);
+}
+function ringmaster(x, y, o = {}) {                    // y = feet
+  const hy = y - 250 - bop(o.b || 0) * 6;
+  rbox(x - 30, y - 92, 24, 92, C.paper, INK, 4); rbox(x + 6, y - 92, 24, 92, C.paper, INK, 4);
+  ell(x, y - 150, 62, 78, C.red);
+  [0, 1, 2].forEach(i => pell(x, y - 190 + i * 30, 6, 6, C.yellow, INK, 2));
+  const armA = o.torch ? -1.0 : o.point ? -0.2 : -0.6 + Math.sin((o.b || 0) * Math.PI) * 0.3;
+  const ax = x + 46 + Math.cos(armA) * 74, ay = y - 182 + Math.sin(armA) * 74;
+  line([[x + 40, y - 182], [ax, ay]], 18, INK); line([[x + 40, y - 182], [ax, ay]], 11, C.red); ell(ax, ay, 11, 11, C.paper);
+  if (o.torch) { line([[ax, ay], [ax + 8, ay - 70]], 8, C.wood); poly([[ax - 6, ay - 70], [ax + 8, ay - 108 - bop(o.b || 0) * 8], [ax + 22, ay - 70]], C.orange, INK, 3); }
+  ell(x, hy, 50, 48, C.skin);
+  face(x, hy - 8, 0.95, o.mood || 'normal', { look:[1, 0], skin:C.skin, mouth:'none', blink:blink(1.3) });
+  ell(x - 14, hy + 16, 22, 9, C.stache); ell(x + 14, hy + 16, 22, 9, C.stache);
+  if (o.whistle) { ell(x + 4, hy + 30, 6, 6, C.mouth, INK, 2); line([[x + 8, hy + 30], [x + 44, hy + 34]], 7, C.yellow); }
+  rbox(x - 36, hy - 112, 72, 70, INK, INK, 3); rbox(x - 56, hy - 46, 112, 12, INK, INK, 3); rbox(x - 36, hy - 58, 72, 10, C.yellow, INK, 2);
+}
+function seal(x, y, o = {}) {                          // y = top of its pedestal; returns where the ball sits
+  rbox(x - 80, y, 160, 130, C.red); star(x, y + 64, 26, C.yellow);
+  const cl = o.clap || 0;
+  ell(x, y - 70, 70, 88, C.blueM);
+  ell(x - 62, y - 40 - cl * 34, 18, 36, C.blue); ell(x + 62, y - 40 - cl * 34, 18, 36, C.blue);
+  const hx = x, hy = y - 172 - (o.bop || 0) * 6;
+  ell(hx, hy, 46, 42, C.blueM);
+  ell(hx, hy + 18, 26, 15, C.blueT);
+  pell(hx, hy + 8, 9, 7, INK);
+  [-1, 1].forEach(k => { line([[hx + k * 12, hy + 20], [hx + k * 44, hy + 14]], 2.5); line([[hx + k * 12, hy + 24], [hx + k * 42, hy + 30]], 2.5); });
+  face(hx, hy - 14, 0.85, o.mood || 'normal', { look:[0, -1], skin:C.blueM, mouth:o.mouth, blink:blink(2.4) });
+  return [hx, hy - 70];
+}
+function flyer(x, y, rot, o = {}) {                    // the trapeze star (pink leotard); y is her middle
+  g.save(); g.translate(x, y); g.rotate(rot); g.scale(FS, FS);
+  if (o.pose === 'tuck') {
+    ell(0, 4, 34, 30, C.pink); ell(0, -28, 22, 22, C.skin); pell(0, -46, 10, 8, C.purple);
+    face(0, -30, 0.55, o.mood, { skin:C.skin, mouth:'o' });
+  } else {
+    const up = o.pose === 'flop' ? -1 : 1;             // arms up when hanging or held; flailing when she falls
+    [-1, 1].forEach(k => { line([[k * 10, -24], [k * (14 + (up < 0 ? 20 : 0)), -24 - 46 * up]], 10, INK); line([[k * 10, -24], [k * (14 + (up < 0 ? 20 : 0)), -24 - 46 * up]], 6, C.skin); });
+    [-1, 1].forEach(k => { line([[k * 8, 26], [k * 12, 70]], 11, INK); line([[k * 8, 26], [k * 12, 70]], 7, C.skin); });
+    ell(0, 2, 22, 34, C.pink); pell(-6, -6, 4, 4, C.yellow); pell(7, 10, 4, 4, C.yellow);
+    ell(0, -44, 18, 18, C.skin); pell(0, -60, 10, 8, C.purple);
+    face(0, -46, 0.5, o.mood, { look:[1, 0], skin:C.skin, blink:blink(2.8) });
+    if (o.ball) circusBall(20, 24, 13, (o.b || 0) * 3);
+  }
+  g.restore();
+}
+function catcher(x0, y0, o = {}) {                     // hangs by his knees from the bar, arms reaching down
+  g.save(); g.translate(x0, y0); g.scale(FS, FS); const x = 0, y = 0;
+  [-1, 1].forEach(k => { line([[x + k * 12, y + 4], [x + k * 18, y - 46]], 12, INK); line([[x + k * 12, y + 4], [x + k * 18, y - 46]], 7, C.teal); });
+  ell(x, y + 64, 26, 50, C.teal);
+  const r = (o.reach || 0) * 14;
+  [-1, 1].forEach(k => { line([[x + k * 14, y + 104], [x + k * 16, y + 175 + r]], 11, INK); line([[x + k * 14, y + 104], [x + k * 16, y + 175 + r]], 7, C.skin); });
+  ell(x, y + 132, 20, 20, C.skin); pell(x, y + 150, 14, 6, C.stache);
+  face(x, y + 130, 0.55, o.mood || 'normal', { look:[-1, 0.4], skin:C.skin, blink:blink(3.3) });
+  g.restore();
+}
+function cannon(x, y, recoil) {                        // base at (x, y), barrel aimed up and to the right
+  g.save(); g.translate(x - recoil * 14, y); g.scale(1.3, 1.3); g.rotate(-0.55);
+  rbox(-40, -38, 210, 76, C.blue);
+  [30, 90].forEach(dx => rbox(dx, -40, 18, 80, C.yellow, INK, 3));
+  ell(172, 0, 16, 40, INK, null);
+  g.restore();
+  ell(x - 12, y + 30, 58, 58, C.wood); pell(x - 12, y + 30, 12, 12, INK);
+}
+function clown(x, y, rot = 0, o = {}) {
+  g.save(); g.translate(x, y); g.rotate(rot);
+  ell(0, 24, 26, 30, C.yellow); pell(-8, 18, 5, 5, C.red); pell(8, 32, 5, 5, C.blue);
+  ell(-26, -20, 14, 12, C.pink); ell(26, -20, 14, 12, C.teal);
+  ell(0, -14, 26, 24, C.paper);
+  face(0, -16, 0.6, o.mood || 'happy', { skin:C.paper });
+  pell(0, -6, 7, 7, C.red, INK, 2);
+  g.restore();
+}
+
+// ================= day 3: the tent (printed once per scene) =================
+function bgTent(kind) {
+  box(0, 0, W, H, C.paper);
+  for (let i = -9; i < 10; i++) poly([[640, -40], [640 + i * 170, 760], [640 + (i + 0.5) * 170, 760]], '#F7A9B2', null);   // soft stripes so the acts stand out
+  halftone(0, 0, W, 220, '#C23A4C', 0.45, 0.0, 14);
+  for (let i = 0; i < 16; i++) {                        // bunting
+    const x0 = i * 84, y0 = 90 + Math.sin(i / 15 * Math.PI) * 40;
+    poly([[x0, y0], [x0 + 84, y0 + (Math.sin((i + 1) / 15 * Math.PI) - Math.sin(i / 15 * Math.PI)) * 40], [x0 + 42, y0 + 60]], [C.yellow, C.blue, C.teal, C.pink][i % 4], INK, 3);
+  }
+  box(0, 600, W, 120, C.orangeT); halftone(0, 604, W, 116, C.orange, 0.2, 0.6, 12);
+  rbox(-20, 588, W + 40, 18, C.yellow);
+  for (let i = 0; i < 30; i++) ell(i * 46 + 10, 714, 24, 22, INK, null);   // the crowd, front row
+  if (kind === 'trapeze') {
+    rbox(30, 210, 150, 22, C.yellow); rbox(1100, 210, 150, 22, C.yellow);
+    line([[105, 232], [105, 600]], 6); line([[1175, 232], [1175, 600]], 6);
+    for (let i = 0; i < 26; i++) line([[i * 52, 630], [i * 52 + 26, 660], [i * 52 + 52, 630]], 2.5);
+    line([[0, 630], [W, 630]], 4); line([[0, 660], [W, 660]], 4);
+  }
+  if (kind === 'cannon') {
+    ell(1170, 270, 90, 30, null, INK, 8); ell(1170, 270, 90, 30, null, C.yellow, 4);
+    for (let i = -3; i <= 3; i++) line([[1170 + i * 26, 250], [1170 + i * 20, 320]], 2);
+    line([[1170, 300], [1170, 600]], 7);
+    star(560, 150, 34, C.yellow);
+  }
+}
+
+// ================= day 3: scenes =================
+function sceneParade(b) {                              // elephants step, step, and STOMP the big drum
+  printed(8, () => bgTent('parade')); spotlights(b);
+  const P = hits.filter(h => h.l === 0), mood = moodFor(0, b);
+  const tapP = Math.max(tapIn(0, ARRIVE[0], b, 0.18), tapIn(REMIX, FINALE, b, 0.18));
+  clown(1170, 560, 0, { mood });                       // a clown on a stool keeps score
+  rbox(1140, 590, 60, 20, C.purple);
+  bigDrum(700, 560, tapP);
+  P.forEach(h => {
+    if (h.again) return;
+    const grp = P.filter(q => q === h || (q.again && q.steps[0] === h.steps[0] && !q.remix));
+    const last = grp[grp.length - 1], [s0, s1] = h.steps;
+    const s = { baby:0.85, big:1.4, mama:1.25 }[h.who] || 1.15, stand = 700 - 60 * s;
+    if (b < s0 - 1) return;
+    const keys = [[s0 - 1, -260], [s0, stand - 320], [s1, stand - 160], [h.b, stand]];
+    const leaveT = last.r ? Math.max(last.b, last.tb) + 0.4 : 1e9;
+    let x = stand, walk = 0, lift = 0;
+    if (b >= leaveT) { const p = (b - leaveT) / 2; if (p >= 1) return; x = lerp(stand, 1500, p); walk = b * 2; }
+    else if (b < h.b) {                                 // one smooth walk in, slowing as it reaches the drum
+      const p = clamp((b - keys[0][0]) / (h.b - keys[0][0]), 0, 1); x = lerp(keys[0][1], stand, 1 - (1 - p) * (1 - p)); walk = b * 2;
+    }
+    grp.forEach(q => { if (!q.r && b > q.b - 0.5) lift = Math.max(lift, clamp((b - (q.b - 0.5)) / 0.4, 0, 1)); });
+    const missed = grp.some(q => q.r === 'miss' && q.tb <= b), happy = grp.some(q => good(q) && b >= q.tb && b < q.tb + 0.8);
+    elephant(x, 600 - (walk ? Math.abs(Math.sin(Math.PI * b * 2)) * 5 : 0), s, { lift, walk, b, ball:h.who === 'mama' && !(last.r && b >= last.b), mood:missed ? 'stare' : happy ? 'happy' : 'normal', blink:blink(h.b) });
+  });
+  P.forEach(h => {                                     // a boom ring on the drum for every good stomp
+    if (!good(h) || b < h.tb || b > h.tb + 0.4) return;
+    const k = (b - h.tb) / 0.4; g.globalAlpha = 1 - k; ell(700, 560, 120 + k * 80, 26 + k * 20, null, C.yellow, 6); g.globalAlpha = 1;
+  });
+}
+
+const SEAL_X = 760, SEAL_Y = 470;
+function sceneSeal(b) {                                // the ringmaster whistles, the seal bounces the ball back
+  printed(9, () => bgTent('seal')); spotlights(b);
+  const S = hits.filter(h => h.l === 1), mood = moodFor(1, b);
+  const whistling = CUES.some(c => c.k === 'whistle' && b >= c.b - 0.05 && b < c.b + c.d);
+  ringmaster(250, 600, { mood, b, whistle:whistling });
+  const tapP = Math.max(tapIn(ARRIVE[0], ARRIVE[1], b, 0.2), tapIn(REMIX, FINALE, b, 0.2));
+  const clap = S.some(h => good(h) && b >= h.tb && b < h.tb + 0.3) ? 1 : 0;
+  seal(SEAL_X, SEAL_Y, { mood, clap, bop:tapP * 1.4, mouth:tapP > 0.3 ? 'open' : undefined });   // the head nods up into the ball when you tap
+  // The ball follows real tosses: each one starts the moment you actually tapped and lands on the next beat you need to hit.
+  // While it waits for your tap it sits still on the nose; a miss knocks it off and a fresh ball drops in.
+  const NOSE = [SEAL_X, SEAL_Y - 242];                  // a fixed contact point, so nothing jitters
+  const touch = h => good(h) ? Math.max(h.tb, h.b) : h.b;   // an early tap still lets it land first; a late one launches it late
+  const drop = (t0, t1) => [NOSE[0], lerp(-60, NOSE[1], clamp((b - t0) / (t1 - t0), 0, 1) ** 2)];      // falling in from above, speeding up
+  let prev = null; S.forEach(h => { if (touch(h) <= b) prev = h; });
+  const next = S[prev ? S.indexOf(prev) + 1 : 0], end = next ? touch(next) : null;
+  let pos = null, spin = 0, squash = 0;
+  if (next && (next.remix || !prev) && b >= (next.remix || prev ? end - 1 : ARRIVE[0])) pos = drop(next.remix || prev ? end - 1 : ARRIVE[0], end);
+  else if (prev && !prev.r) pos = NOSE;                 // balanced on the nose, waiting for you
+  else if (prev && prev.r === 'miss') {
+    const d = Math.max(0, b - (prev.jt ?? prev.b));         // knocked off the moment the miss registers
+    const off = d < 0.8 ? toss(NOSE, [NOSE[0] + 170, 588], d / 0.8, 70) : [NOSE[0] + 170 + (d - 0.8) * 320, 588];   // then it rolls away
+    if (off[0] < 1340) circusBall(off[0], off[1], 26, d * 9);
+    if (next && !next.remix && b >= end - 1) pos = drop(end - 1, end);   // and a fresh ball drops in for the next one
+  } else if (prev && good(prev)) {
+    const t0 = touch(prev), gap = next ? end - t0 : 0;
+    if (prev.final && !prev.remix) pos = null;           // up it goes to the trapeze (the flight takes over)
+    else if (next && !next.remix && gap <= 3.6) {
+      const p = clamp((b - t0) / gap, 0, 1);
+      pos = toss(NOSE, NOSE, p, Math.min(NOSE[1] - 40, 25 + gap * 100));   // the longer the wait, the higher it flies
+      spin = p * Math.PI * 2 * Math.max(1, Math.round(gap));
+      squash = Math.max(0, 1 - (b - t0) / 0.08) + Math.max(0, 1 - (end - b) / 0.06);
+    } else pos = [NOSE[0], NOSE[1] - (b - t0) * 900];  // a parting shot, up and out of view
+  }
+  if (pos) {
+    const k = Math.min(1, squash) * 0.18;
+    g.save(); g.translate(pos[0], pos[1] + k * 20); g.scale(1 + k, 1 - k); circusBall(0, 0, 26, spin); g.restore();
+  }
+}
+
+const FLY_PIVOT = [360, 30], CAT_PIVOT = [940, 30], ROPE = 180, FS = 1.35;   // FS: the performers are drawn 35% bigger
+const flyAngle = b => live(b) ? -0.55 * Math.cos(Math.PI * b) : -0.3;
+const catAngle = b => live(b) ? -0.35 * Math.cos(Math.PI * b) : -0.2;
+const barAt = (piv, a) => [piv[0] + Math.sin(a) * ROPE, piv[1] + Math.cos(a) * ROPE];
+const onBar = t => { const q = barAt(FLY_PIVOT, flyAngle(t)); return [q[0], q[1] + 70 * FS]; };
+const caught = t => { const q = barAt(CAT_PIVOT, catAngle(t)); return [q[0], q[1] + 245 * FS]; };
+function sceneTrapeze(b) {                             // swing, swing, let go... catch!
+  printed(10, () => bgTent('trapeze')); spotlights(b);
+  const T = hits.filter(h => h.l === 2), mood = moodFor(2, b);
+  const tapP = Math.max(tapIn(ARRIVE[1], ARRIVE[2], b, 0.25), tapIn(REMIX, FINALE, b, 0.25));
+  const fb = barAt(FLY_PIVOT, flyAngle(b)), cb = barAt(CAT_PIVOT, catAngle(b));
+  [[FLY_PIVOT, fb], [CAT_PIVOT, cb]].forEach(([p, q]) => {
+    line([[p[0] - 30, p[1]], [q[0] - 30, q[1]]], 3); line([[p[0] + 30, p[1]], [q[0] + 30, q[1]]], 3);
+    line([[q[0] - 36, q[1]], [q[0] + 36, q[1]]], 9, INK); line([[q[0] - 34, q[1]], [q[0] + 34, q[1]]], 5, C.yellow);
+  });
+  catcher(cb[0], cb[1], { reach:tapP, mood });
+  // Her path is timed from your actual taps: she flies on her release, waits in the catcher's (still swinging) hands for a late tap,
+  // is tossed for a hop only once you've caught her, and after a miss drops into the net and springs back up to her bar.
+  const touch = h => good(h) ? Math.max(h.tb, h.b) : (h.jt ?? h.b);
+  const before = h => T[T.indexOf(h) - 1], after = h => T[T.indexOf(h) + 1];
+  const netAt = h => { const c = caught(touch(h)); return [c[0] + 40, 600]; };
+  const fallLen = h => (after(h) && after(h).hop && !after(h).remix) ? 0.3 : 0.6;
+  const rel = h => { if (!h.hop) return h.release; const p = before(h); return !p || !p.r ? Infinity : touch(p) + (good(p) ? 0 : fallLen(p)); };
+  let H = null; T.forEach(h => { if (rel(h) <= b) H = h; });
+  let p0 = null, rot = 0, pose = 'hang';
+  if (!H) { if (b >= ARRIVE[1] - 0.05) p0 = onBar(b); }
+  else if (b < H.b) {                                   // in the air, on her way to you
+    const r0 = rel(H), p = (b - r0) / (H.b - r0), pb = before(H);
+    const from = !H.hop ? onBar(r0) : good(pb) ? caught(r0) : netAt(pb);
+    p0 = arc(from, caught(H.b), p, H.hop ? 110 : 150 + (H.flips || 0) * 30);
+    rot = (H.flips || (H.hop ? 1 : 0)) * Math.PI * 2 * p; pose = 'tuck';
+  } else if (!H.r) p0 = caught(b);                      // arrived: waiting in his hands for your tap
+  else if (good(H)) {
+    const nx = after(H);
+    if (H.final && !H.remix) p0 = null;                  // (the final catch flings her to the cannon: the flight draws that)
+    else if (nx && nx.hop && !nx.remix) { p0 = caught(b); pose = 'held'; }
+    else {
+      const back0 = touch(H) + 0.5, back1 = nx && !nx.remix ? nx.release - 0.5 : back0 + 1.2;
+      if (b < back0) { p0 = caught(b); pose = 'held'; }
+      else { const p = clamp((b - back0) / Math.max(0.3, back1 - back0), 0, 1); p0 = p >= 1 ? onBar(b) : arc(caught(back0), onBar(back1), p, 100); pose = p >= 1 ? 'hang' : 'tuck'; rot = p < 1 ? p * Math.PI * 2 : 0; }
+    }
+  } else {                                               // missed
+    const t0 = touch(H), nx = after(H), c = caught(t0), net = netAt(H), fl = fallLen(H);
+    const back1 = nx && !nx.remix && !nx.hop ? nx.release - 0.3 : t0 + 2;
+    if (b < t0 + fl) { const p = (b - t0) / fl; p0 = [lerp(c[0], net[0], p), lerp(c[1], net[1], p * p)]; pose = 'flop'; }
+    else if (b < back1) { const p = clamp((b - t0 - fl) / Math.max(0.4, back1 - t0 - fl), 0, 1); p0 = arc(net, onBar(back1), p, 140); pose = 'tuck'; rot = p * Math.PI * 2; }
+    else p0 = onBar(b);
+  }
+  if (p0) flyer(p0[0], p0[1], rot, { pose, mood, b, ball:true });
+}
+
+const CAN = [760, 560], MOUTH = [951, 443];            // the barrel is drawn 1.3x, so its mouth sits here
+function sceneCannon(b) {                              // the fuse burns toward the cannon: BOOM when the spark gets there
+  printed(11, () => bgTent('cannon')); spotlights(b);
+  const K = hits.filter(h => h.l === 3), mood = moodFor(3, b), fin = finalOf(3);
+  // Everything keys off the moment each boom actually happened: your tap, or (for a miss) when the miss registered.
+  const fired = h => h.r ? (good(h) ? h.tb : (h.jt ?? h.b)) : Infinity;
+  const H = K.find(h => b < fired(h)), prev = [...K].reverse().find(h => fired(h) <= b);
+  ringmaster(190, 600, { mood, b, torch:!!(H && b >= H.light - 0.4 && b < H.light + 0.3), point:!!(H && b >= H.light) });
+  // the fuse for the next boom: its length shows how long it will burn, and it appears as soon as the last one has gone off
+  if (H && b >= Math.min(H.light, prev ? fired(prev) + 0.25 : ARRIVE[2] - 0.5)) {
+    const len = (H.b - H.light) * 230, x1 = CAN[0] - 60, x0 = x1 - len;
+    const p = clamp((b - H.light) / (H.b - H.light), 0, 1), xs = lerp(x0, x1, b >= H.light ? p : 0);
+    const pts = []; for (let x = xs; x <= x1; x += 12) pts.push([x, 610 + Math.sin(x * 0.05) * 7]);
+    pts.push([x1, 610 + Math.sin(x1 * 0.05) * 7]);
+    if (pts.length > 1) { line(pts, 11, INK); line(pts, 5, C.orange); }
+    if (b >= H.light) { const sy = 610 + Math.sin(xs * 0.05) * 7; star(xs, sy, 13 + bop(b * 2) * 4, C.yellow); star(xs, sy, 6, C.orange); }   // waits fizzing at the cannon if you're late
+  }
+  const lastBoom = [...K].reverse().find(h => good(h) && b >= h.tb);
+  cannon(CAN[0], CAN[1], lastBoom && b < lastBoom.tb + 0.3 ? 1 - (b - lastBoom.tb) / 0.3 : 0);
+  // what comes out: each clown flies into its own spot in the net; a miss flops one out onto the floor; the last boom sends the flyer up
+  let slot = 0, flops = 0;
+  K.forEach(h => {
+    const t0 = fired(h); if (b < t0) return;
+    const d = b - t0;
+    if (good(h)) {
+      if (h.final && !h.remix) { if (d < 2) flyer(lerp(MOUTH[0], 1000, d / 1.2), MOUTH[1] - d * 520, d * 8, { pose:'tuck', mood:'happy', b }); return; }
+      const spot = [1104 + (slot % 5) * 30, 238 - (slot % 2) * 8]; slot++;
+      if (d < 1) clown(...toss(MOUTH, spot, ease(d), 230), d * 10);
+      else clown(spot[0], spot[1], Math.sin(b + slot) * 0.2);
+      if (d < 0.5) { g.globalAlpha = 1 - d * 2; ell(MOUTH[0] + 30, MOUTH[1] - 20, 40 + d * 80, 30 + d * 50, C.paper, null); g.globalAlpha = 1; }
+    } else if (!h.remix) {
+      const spot = [MOUTH[0] + 50 + (flops++ % 3) * 34, 590];
+      clown(...(d < 0.5 ? toss(MOUTH, spot, d / 0.5, 50) : spot), lerp(0, 1.4, clamp(d / 0.5, 0, 1)), { mood:'stare' });
+      if (d < 0.4) { g.globalAlpha = 1 - d * 2.5; ell(MOUTH[0] + 10, MOUTH[1] - 10, 20 + d * 40, 16 + d * 30, '#C9C3D9', null); g.globalAlpha = 1; }   // pfft
+    }
+  });
+  if (good(fin) && b >= FINALE) star(640, 120, 30 + bop(b) * 10, C.yellow);
+}
+
+const FLIGHTS3 = [   // day 3's hero object between acts: ball → (bounced up) → the flyer, who then becomes the cannonball
+  { a:[832, 320], z:[W + SEAL_X, -60], draw:(x, y, b) => circusBall(x, y, 26, b * 4) },
+  { a:[W + SEAL_X, 200], z:[2 * W + 266, 277], draw:(x, y, b) => circusBall(x, y, 26, b * 4) },
+  { a:[2 * W + 878, 530], z:[3 * W + MOUTH[0], MOUTH[1]], draw:(x, y, b) => flyer(x, y, b * 9, { pose:'tuck', mood:'happy', b }) },
+];
+
+const SCENES = DAY === 3 ? [sceneParade, sceneSeal, sceneTrapeze, sceneCannon] : DAY === 2 ? [sceneShear, sceneBat, sceneStack, sceneDress] : [sceneHen, sceneCrack, scenePan, sceneDog];
+const FLIGHTS = DAY === 3 ? FLIGHTS3 : DAY === 2 ? FLIGHTS2 : [   // the hero object travelling between jobs (world coordinates)
+  { a:[640, 560], z:[W + 640, 400], draw:(x, y) => egg(x, y, { gold:true, tape:finalOf(0).r === 'miss', mood:'happy' }) },
+  { a:[W + 640, 450], z:[2 * W + 620, 560], draw:(x, y) => yolk(x, y, finalOf(1).r === 'miss', finalOf(1).r === 'miss' ? 'worried' : 'happy') },
+  { a:[2 * W + 620, 520], z:[3 * W + 370, 460], draw:(x, y, b) => pancake(x, y, 70, Math.cos(b * 9), jobHits(2).filter(h => h.r === 'miss').length / 2.5, 'happy', 'o') },
+];
+function camX(b) {
+  if (b >= REMIX - 0.1) return remixScene(b) * W;       // remix: hard cuts, hidden by the wipe
+  return HANDOFFS.reduce((x, h) => x + W * ease(clamp((b - h) / PAN, 0, 1)), 0);
+}
+// A pink ink swipe that covers each remix cut (the cut happens 0.1 beat before each slot).
+function wipe(b) {
+  for (let k = 0; k <= REMIX_NOTES.length; k++) {         // one wipe per slot, plus the cut back to the dog for the finale
+    const p = (b - (REMIX + k * SLOT - 0.1) + 0.15) / 0.3;
+    if (p <= 0 || p >= 1) continue;
+    const x0 = lerp(-1500, W + 120, p);
+    g.save(); g.beginPath(); g.moveTo(x0 + 200, 0); g.lineTo(x0 + 1600, 0); g.lineTo(x0 + 1400, H); g.lineTo(x0, H); g.closePath();
+    g.fillStyle = k % 2 ? C.blue : C.pink; g.fill(); g.lineWidth = 10; g.strokeStyle = INK; g.stroke();
+    g.restore();
+  }
+}
+
+function render(b) {
+  if (!DOTS) makeTextures();
+  BOIL = state === 'play' ? Math.floor(b * 2) : Math.floor(performance.now() / 250);
+  NSH = 0;
+  const cx = camX(b);
+  g.clearRect(0, 0, W, H);
+  SCENES.forEach((fn, i) => {
+    const ox = i * W - cx;
+    if (ox >= W || ox <= -W) return;
+    g.save(); g.translate(ox, 0); g.beginPath(); g.rect(0, 0, W, H); g.clip(); fn(b); g.restore();
+  });
+  FLIGHTS.forEach((f, i) => {
+    const h = HANDOFFS[i], hh = finalOf(i), s0 = hh.r ? (good(hh) ? Math.max(h, hh.tb) : (hh.jt ?? h)) : Infinity;   // leaves when you actually hit it
+    if (b < s0 || b >= h + PAN) return;
+    const p = ease((b - s0) / (h + PAN - s0));
+    f.draw(lerp(f.a[0], f.z[0], p) - cx, lerp(f.a[1], f.z[1], p) - 300 * Math.sin(Math.PI * p), b);
+  });
+  if (state === 'play') { drawRings(b, cx); drawParts(cx); drawPops(cx); }
+  if (state === 'play') wipe(b);
+  g.fillStyle = GRAIN; g.fillRect(0, 0, W, H);           // paper grain over everything
+  hud(b);
+}
+
+function banner(text, sub, k, x = 250) {               // a stuck-on sticker that drops in from above
+  g.save(); g.translate(x, 80 - (1 - k) * 220); g.rotate(-0.05);
+  const h = sub ? 118 : 96;
+  rbox(-214, -48, 428, h, C.pink, INK, 6);
+  printText(text, 0, 14, 50, C.paper, FONT_D, 4);
+  if (sub) { g.font = `bold 30px ${FONT_H}`; g.fillStyle = INK; g.fillText(sub, 0, 54); }
+  g.restore();
+}
+// Bottom strip: one dot per hit, filled in as you play.
+function tracker(b) {
+  const COL = { perfect:C.teal, ok:C.orange, miss:C.red };
+  const grp = h => h.remix ? 4 : h.l;                   // four jobs, then the remix
+  const total = hits.length * 18 + 4 * 16;
+  let x = W / 2 - total / 2;
+  g.fillStyle = INK; g.beginPath(); g.roundRect(x - 16, 684, total + 32, 28, 14); g.fill();
+  const next = hits.find(h => !h.r);
+  hits.forEach((h, i) => {
+    if (i && grp(h) !== grp(hits[i - 1])) x += 16;
+    const cx = x + 9;
+    if (h.r) pell(cx, 698, 6.5, 6.5, COL[h.r]);
+    else pell(cx, 698, 5.5, 5.5, null, h === next ? C.paper : '#5E6596', h === next ? 3 : 2);
+    x += 18;
+  });
+}
+function hud(b) {
+  const li = b >= REMIX - 0.1 ? remixScene(b) : b < ARRIVE[0] ? 0 : b < ARRIVE[1] ? 1 : b < ARRIVE[2] ? 2 : 3;
+  // job tabs, top right
+  const names = LINKS.map(l => l.name.replace('!', '').toLowerCase());
+  g.font = `bold 26px ${FONT_H}`; g.textAlign = 'center';
+  const tw = names.map(n => g.measureText(n).width + 30), total = tw.reduce((p, q) => p + q, 0);   // each tab sized to its word
+  let tx = W - 22 - total;
+  g.globalAlpha = 0.85; g.fillStyle = C.paper; g.beginPath(); g.roundRect(tx - 8, 18, total + 16, 42, 21); g.fill(); g.globalAlpha = 1;
+  names.forEach((n, i) => {
+    const x = tx + tw[i] / 2, on = i === li, w2 = tw[i] - 6;
+    if (on) { g.fillStyle = INK; g.beginPath(); g.roundRect(x - w2 / 2 + 3, 25, w2, 34, 17); g.fill(); g.fillStyle = C.pink; g.beginPath(); g.roundRect(x - w2 / 2, 22, w2, 34, 17); g.fill(); }
+    g.fillStyle = on ? C.paper : INK; g.globalAlpha = on ? 1 : 0.45; g.fillText(n, x, 47); g.globalAlpha = 1;
+    tx += tw[i];
+  });
+  if (state !== 'play') return;
+  tracker(b);
+  if (b < 4 && b >= 0) { g.globalAlpha = 1 - (b % 1) * 0.6; printText(String(Math.floor(b) + 1), W / 2, 440, 170, C.pink, FONT_D, 7); g.globalAlpha = 1; }
+  J.forEach((j, k) => {
+    const a = j - (k ? 1.5 : 0.5), z = j + 3;
+    if (b >= a && b < z) banner(LINKS[k].name, LINKS[k].how, clamp((b - a) * 3, 0, 1) * clamp((z - b) * 3, 0, 1), LINKS[k].bx || 250);
+  });
+  if (b >= REMIX - 1.5 && b < REMIX + 2) banner('Remix!', 'all four jobs, quick!', clamp((b - REMIX + 1.5) * 3, 0, 1) * clamp((REMIX + 2 - b) * 3, 0, 1));
+  if (b >= FINALE) banner('Handed off!', null, clamp((b - FINALE) * 3, 0, 1), W / 2);
+  g.textAlign = 'left';
+}
+
+// ================= results =================
+const JUDGE = DAY === 3 ? {
+  good:['the elephants are proud of you', 'the seal wants to go on tour', 'the crowd gasped, then cheered', 'that was the loudest boom in town'],
+  mid: ['one elephant stepped on a toe', 'the seal fumbled a few', 'the flyer met the safety net', 'a few fuses fizzled'],
+  bad: ['the elephants marched off in a huff', 'the ball rolled under the bleachers', 'the safety net did all the work', 'the clowns are still stuck in the cannon'],
+} : DAY === 2 ? {
+  good:['the sheep look fabulous', 'grandma wants a rematch', 'that is one solid snowman', 'the snowman has never looked sharper'],
+  mid: ['a few sheep went home still woolly', 'the kitten fumbled a few', 'the snowman came out a bit lumpy', 'the snowman is only half dressed'],
+  bad: ['the goat got a haircut', 'there is yarn all over the floor', 'the snowman fell apart', 'the snowman is wearing his carrot as a hat'],
+} : {
+  good:['the hen trusts you completely', 'your cracks were crisp', 'your flips were fluffy', 'the dog thinks you are the best'],
+  mid: ['a few eggs were wobbly', 'the egg was a nervous wreck', 'the pancake got a little toasty', 'the dog is mostly satisfied'],
+  bad: ['several eggs did not make it', 'you cracked under pressure', 'the smoke alarm has opinions', 'the dog has questions'],
+};
+function score() {
+  const pts = h => h.r === 'perfect' ? 1 : h.r === 'ok' ? 0.6 : 0;
+  const jobs = LINKS.map((_, l) => { const js = jobHits(l); return js.reduce((s, h) => s + pts(h), 0) / js.length; });
+  return { jobs, pct: Math.round(100 * hits.reduce((s, h) => s + pts(h), 0) / hits.length) };
+}
+function finish() {
+  state = 'done';
+  const { jobs, pct } = score();
+  const rank = pct >= 90 ? 'Superb!' : pct >= 60 ? 'OK' : 'Try again';
+  const best = jobs.indexOf(Math.max(...jobs)), worst = jobs.indexOf(Math.min(...jobs));
+  const cap = s => s[0].toUpperCase() + s.slice(1);
+  let comment;
+  if (jobs[worst] >= 0.9) comment = `${cap(JUDGE.good[best])}. Everything went perfectly!`;
+  else if (jobs[best] < 0.6) comment = `${cap(JUDGE.bad[worst])}. Let's try that again.`;
+  else comment = `${cap(JUDGE.good[best])}… but ${jobs[worst] >= 0.6 ? JUDGE.mid[worst] : JUDGE.bad[worst]}.`;
+  const sq = r => r === 'perfect' ? '🟩' : r === 'ok' ? '🟨' : '🟥';
+  const grid = [...LINKS.map((_, l) => jobHits(l)), hits.filter(h => h.remix)].map(js => js.map(h => sq(h.r)).join('')).join(' ');
+  const key = `handoff-${DAY}`, official = !localStorage.getItem(key);
+  const text = `Handoff, daily ${DAY}  ${LINKS.map(l => l.emoji).join('→')}
+${grid}
+${rank} ${pct}%
+${GAME_URL}`;
+  if (official) localStorage.setItem(key, text);
+  document.getElementById('rank').textContent = rank;
+  document.getElementById('comment').textContent = `“${comment}”`;
+  document.getElementById('share').textContent = official ? text : localStorage.getItem(key);
+  document.getElementById('sub').textContent = official
+    ? (DAY < TODAY_DAY ? 'Saved as your run for this day. Today’s chain is waiting too.' : RAW_DAY < 1 ? 'You played it early! Day 1 officially starts Monday.' : RAW_DAY >= DAYS_BUILT ? 'Official run for today. New days are on the way.' : 'Official run for today. Come back tomorrow for a new chain.')
+    : 'Practice run. Your official result is the first one you played today (shown above).';
+  document.getElementById('copy').textContent = 'Copy result';
+  document.getElementById('results').classList.remove('hidden');
+}
+
+// ================= loop & input =================
+function frame() {
+  requestAnimationFrame(frame);                        // schedule first so one bad frame can't stop the game
+  if (state === 'play') {
+    const b = beat();
+    update(b);
+    render(b);
+    if (b >= END) finish();
+  } else if (state === 'title') render(-1);
+}
+
+document.getElementById('dayLine').textContent =
+  `Daily ${DAY}, ${DAY_DATE.toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric' })}${RAW_DAY < 1 ? ' (early access)' : ''}`;
+document.getElementById('lede').textContent = DAYTEXT.lede;
+const pickable = PREVIEW ? DAYS_BUILT : TODAY_DAY;      // only today and earlier days, unless previewing
+document.getElementById('dayPick').innerHTML = pickable < 2 ? '' : 'Play another day: ' + Array.from({ length:pickable }, (_, i) => `<a href="?day=${i + 1}${PREVIEW ? '&preview' : ''}"${i + 1 === DAY ? ' aria-current="page"' : ''}>Day ${i + 1}</a>`).join('');
+document.getElementById('obj').textContent = DAYTEXT.object;
+if (document.fonts) ['58px "Bagel Fat One"', 'bold 28px "Gaegu"'].forEach(f => document.fonts.load(f));   // canvas text needs them ready
+document.getElementById('play').onclick = begin;
+document.getElementById('again').onclick = begin;
+document.getElementById('copy').onclick = e => {
+  navigator.clipboard?.writeText(document.getElementById('share').textContent);
+  e.target.textContent = 'Copied!';
+};
+cv.addEventListener('pointerdown', e => { e.preventDefault(); tap(); });
+addEventListener('keydown', e => {
+  if (e.repeat) return;
+  if (e.code === 'Space' || e.code === 'Enter') {
+    e.preventDefault();
+    if (state === 'play') tap();
+    else if (state === 'title') begin();
+  }
+});
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
