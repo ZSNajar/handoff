@@ -43,6 +43,7 @@
   button:focus-visible { outline:4px dashed var(--blue); outline-offset:4px; }
   pre { font-family:var(--hand); font-weight:700; font-size:clamp(13px, 1.9vw, 19px); line-height:1.35; margin:0; padding:10px 16px; max-width:100%;
         white-space:pre-wrap; border:3px dashed var(--navy); border-radius:12px; background:#fff; }
+  .run-label { font-weight:700; letter-spacing:.04em; color:var(--pink); }
   .row { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; margin-top:4px; }
   .days a { color:var(--navy); font-weight:700; margin:0 6px; text-decoration-thickness:2px; }
   .days a[aria-current] { color:var(--pink); text-decoration:none; }
@@ -62,7 +63,7 @@
   }
   @media (max-width: 640px) and (orientation: portrait) { .portrait-tip { display:block; } }
   @media (max-height: 460px) {   /* phone held sideways: drop the extras so it all fits */
-    .card { transform:none; padding:10px 16px 12px; gap:5px; }  h1 { font-size:40px; }  h2 { font-size:30px; }
+    .card { transform:none; padding:10px 16px 12px; gap:5px; max-width:600px; }  h1 { font-size:40px; }  h2 { font-size:30px; }
     .hide-low { display:none !important; }  pre { line-height:1.2; }
   }
 </style>
@@ -80,6 +81,7 @@
         A pink ring shows when to tap whenever a rhythm is new. Your hit passes the <span id="obj">egg</span> along, and the song never stops.</span>
         <span class="short">Tap anywhere to sing each rhythm back. A pink ring shows when.</span></p>
       <button id="play">Play today's chain</button>
+      <p class="quiet" id="officialTitle"></p>
       <p class="quiet days" id="dayPick"></p>
       <p class="quiet hide-low">Sound on, it's half the game.</p>
       <p class="quiet portrait-tip">Tip: turn your phone sideways for a bigger stage.</p>
@@ -88,13 +90,15 @@
 
   <div id="results" class="overlay hidden">
     <div class="card">
+      <p class="quiet run-label" id="runLabel"></p>
       <h2 id="rank"></h2>
       <p id="comment" class="comment"></p>
       <pre id="share"></pre>
+      <p class="quiet" id="official"></p>
       <p id="sub" class="quiet hide-low"></p>
       <div class="row">
         <button id="copy">Copy result</button>
-        <button id="again" class="alt">Practice again</button>
+        <button id="again" class="alt">Practice again (won’t count)</button>
       </div>
     </div>
   </div>
@@ -589,6 +593,7 @@ function begin() {
   lat = (ac.outputLatency || 0) + (ac.baseLatency || 0);
   start = ac.currentTime + 0.3;
   scheduleSong(start);
+  PRACTICE = !!officialText();                         // the first full run of a day is official; every later one is practice
   state = 'play';
   document.getElementById('title').classList.add('hidden');
   document.getElementById('results').classList.add('hidden');
@@ -1886,6 +1891,16 @@ function score() {
   const jobs = LINKS.map((_, l) => { const js = jobHits(l); return js.reduce((s, h) => s + pts(h), 0) / js.length; });
   return { jobs, pct: Math.round(100 * hits.reduce((s, h) => s + pts(h), 0) / hits.length) };
 }
+// The day's official result is saved as share text; its third line is "<rank> <pct>%".
+const OFFICIAL_KEY = `handoff-${DAY}`;
+let PRACTICE = false;
+const officialText = () => localStorage.getItem(OFFICIAL_KEY);
+const officialLine = () => (officialText() || '').split('\n')[2] || '';
+function showOfficialOnTitle() {                       // once the day's official run is done, Play becomes practice
+  const done = !!officialText();
+  document.getElementById('play').textContent = done ? 'Play again (practice, won’t count)' : 'Play today’s chain';
+  document.getElementById('officialTitle').textContent = done ? `Your official result: ${officialLine()}` : '';
+}
 function finish() {
   state = 'done';
   const { jobs, pct } = score();
@@ -1898,19 +1913,20 @@ function finish() {
   else comment = `${cap(JUDGE.good[best])}… but ${jobs[worst] >= 0.6 ? JUDGE.mid[worst] : JUDGE.bad[worst]}.`;
   const sq = r => r === 'perfect' ? '🟩' : r === 'ok' ? '🟨' : '🟥';
   const grid = [...LINKS.map((_, l) => jobHits(l)), hits.filter(h => h.remix)].map(js => js.map(h => sq(h.r)).join('')).join(' ');
-  const key = `handoff-${DAY}`, official = !localStorage.getItem(key);
-  const text = `Handoff, daily ${DAY}  ${LINKS.map(l => l.emoji).join('→')}
-${grid}
-${rank} ${pct}%
-${GAME_URL}`;
-  if (official) localStorage.setItem(key, text);
-  document.getElementById('rank').textContent = rank;
+  const official = !PRACTICE && !officialText();
+  const text = `Handoff, daily ${DAY}  ${LINKS.map(l => l.emoji).join('→')}\n${grid}\n${rank} ${pct}%\n${GAME_URL}`;
+  if (official) localStorage.setItem(OFFICIAL_KEY, text);
+  // This run's own result always shows. A practice run is labelled, and the day's official result sits underneath.
+  document.getElementById('runLabel').textContent = official ? 'Official run' : 'Practice run, won’t count';
+  document.getElementById('rank').textContent = official ? rank : `${rank} ${pct}%`;
   document.getElementById('comment').textContent = `“${comment}”`;
-  document.getElementById('share').textContent = official ? text : localStorage.getItem(key);
+  document.getElementById('share').textContent = official ? text : `Practice: ${grid}`;
+  document.getElementById('official').textContent = official ? '' : `Today’s official: ${officialLine()}`;
   document.getElementById('sub').textContent = official
     ? (DAY < TODAY_DAY ? 'Saved as your run for this day. Today’s chain is waiting too.' : RAW_DAY < 1 ? 'You played it early! Day 1 officially starts Monday.' : RAW_DAY >= DAYS_BUILT ? 'Official run for today. New days are on the way.' : 'Official run for today. Come back tomorrow for a new chain.')
-    : 'Practice run. Your official result is the first one you played today (shown above).';
-  document.getElementById('copy').textContent = 'Copy result';
+    : 'Practice never changes your official result.';
+  document.getElementById('copy').textContent = official ? 'Copy result' : 'Copy official result';
+  showOfficialOnTitle();
   document.getElementById('results').classList.remove('hidden');
 }
 
@@ -1932,10 +1948,11 @@ const pickable = PREVIEW ? DAYS_BUILT : TODAY_DAY;      // only today and earlie
 document.getElementById('dayPick').innerHTML = pickable < 2 ? '' : 'Play another day: ' + Array.from({ length:pickable }, (_, i) => `<a href="?day=${i + 1}${PREVIEW ? '&preview' : ''}"${i + 1 === DAY ? ' aria-current="page"' : ''}>Day ${i + 1}</a>`).join('');
 document.getElementById('obj').textContent = DAYTEXT.object;
 if (document.fonts) ['58px "Bagel Fat One"', 'bold 28px "Gaegu"'].forEach(f => document.fonts.load(f));   // canvas text needs them ready
+showOfficialOnTitle();
 document.getElementById('play').onclick = begin;
 document.getElementById('again').onclick = begin;
 document.getElementById('copy').onclick = e => {
-  navigator.clipboard?.writeText(document.getElementById('share').textContent);
+  navigator.clipboard?.writeText(officialText() || document.getElementById('share').textContent);
   e.target.textContent = 'Copied!';
 };
 // Tap anywhere on the page while playing (not just the game frame): big thumbs, small phones. Buttons and links still work as normal.
